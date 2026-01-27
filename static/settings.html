@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Settings - OllamaGoWeb</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/static/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script src="/static/js/bootstrap.min.js"></script>
+  <style>
+    .settings-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+
+    .settings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color, #dee2e6);
+    }
+
+    .settings-section {
+      background: var(--bg-secondary, #f8f9fa);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .settings-section h3 {
+      margin-bottom: 1rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-primary, #212529);
+    }
+
+    .provider-card {
+      background: var(--bg-primary, #ffffff);
+      border: 1px solid var(--border-color, #dee2e6);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      transition: box-shadow 0.2s;
+    }
+
+    .provider-card:hover {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .provider-card.active {
+      border-color: var(--accent-primary, #4f39f6);
+      box-shadow: 0 0 0 2px rgba(79, 57, 246, 0.2);
+    }
+
+    .provider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .provider-name {
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .provider-badge {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      background: var(--accent-light, rgba(79, 57, 246, 0.1));
+      color: var(--accent-primary, #4f39f6);
+    }
+
+    .provider-models {
+      font-size: 0.85rem;
+      color: var(--text-secondary, #6c757d);
+    }
+
+    .provider-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .theme-toggle-group {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .theme-btn {
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--border-color, #dee2e6);
+      background: var(--bg-primary, #ffffff);
+      color: var(--text-primary, #212529);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .theme-btn.active {
+      background: var(--accent-primary, #4f39f6);
+      color: var(--text-on-accent, white);
+      border-color: var(--accent-primary, #4f39f6);
+    }
+
+    .modal-content {
+      background: var(--bg-primary, #ffffff);
+      color: var(--text-primary, #212529);
+    }
+
+    .form-control,
+    .form-select {
+      background: var(--input-bg, #ffffff);
+      color: var(--text-primary, #212529);
+      border-color: var(--border-color, #dee2e6);
+    }
+
+    .model-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color, #dee2e6);
+      border-radius: 6px;
+      padding: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .model-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.4rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.25rem;
+    }
+
+    .model-item:hover {
+      background: var(--bg-secondary, #f8f9fa);
+    }
+
+    .model-item.default {
+      background: rgba(79, 57, 246, 0.1);
+    }
+
+    .fetched-models {
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid var(--border-color);
+      border-top-color: var(--accent-primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .back-link {
+      text-decoration: none;
+      color: var(--text-secondary, #6c757d);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .back-link:hover {
+      color: var(--accent-primary, #4f39f6);
+    }
+
+    /* Override Bootstrap primary button colors */
+    .btn-primary {
+      background-color: var(--accent-primary) !important;
+      border-color: var(--accent-primary) !important;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--accent-hover) !important;
+      border-color: var(--accent-hover) !important;
+    }
+
+    .btn-outline-primary {
+      color: var(--accent-primary) !important;
+      border-color: var(--accent-primary) !important;
+    }
+
+    .btn-outline-primary:hover {
+      background-color: var(--accent-primary) !important;
+      border-color: var(--accent-primary) !important;
+      color: var(--text-on-accent, white) !important;
+    }
+
+    /* Override form-range slider */
+    .form-range::-webkit-slider-thumb {
+      background: var(--accent-primary);
+    }
+
+    .form-range::-moz-range-thumb {
+      background: var(--accent-primary);
+    }
+
+    .form-range::-webkit-slider-runnable-track {
+      background: linear-gradient(to right, var(--accent-primary) 0%, var(--accent-primary) var(--value-percent, 35%), var(--bg-tertiary, #dee2e6) var(--value-percent, 35%), var(--bg-tertiary, #dee2e6) 100%);
+    }
+
+    .form-range:focus::-webkit-slider-thumb {
+      box-shadow: 0 0 0 0.25rem var(--accent-light, rgba(79, 57, 246, 0.25));
+    }
+
+    .form-range:focus::-moz-range-thumb {
+      box-shadow: 0 0 0 0.25rem var(--accent-light, rgba(79, 57, 246, 0.25));
+    }
+
+    /* Override Bootstrap form-control and form-select focus states */
+    .form-control:focus,
+    .form-select:focus {
+      border-color: var(--accent-primary) !important;
+      box-shadow: 0 0 0 0.25rem var(--accent-light, rgba(79, 57, 246, 0.25)) !important;
+    }
+
+    /* Override Bootstrap checkbox styles */
+    .form-check-input:checked {
+      background-color: var(--accent-primary) !important;
+      border-color: var(--accent-primary) !important;
+    }
+
+    .form-check-input:focus {
+      border-color: var(--accent-primary) !important;
+      box-shadow: 0 0 0 0.25rem var(--accent-light, rgba(79, 57, 246, 0.25)) !important;
+    }
+
+    .form-check-input:checked:focus {
+      box-shadow: 0 0 0 0.25rem var(--accent-light, rgba(79, 57, 246, 0.25)) !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="settings-container">
+    <div class="settings-header">
+      <a href="/" class="back-link">← Back to Chat</a>
+      <h1 style="margin: 0; font-size: 1.5rem;">Settings</h1>
+      <button id="theme-toggle" class="btn btn-sm" onclick="toggleTheme()">🌙</button>
+    </div>
+
+    <!-- Appearance Section -->
+    <div class="settings-section">
+      <h3>🎨 Appearance</h3>
+      <div>
+        <label class="form-label">Theme</label>
+        <div class="theme-toggle-group">
+          <button class="theme-btn" data-theme="light" onclick="setTheme('light')">☀️ Light</button>
+          <button class="theme-btn" data-theme="dark" onclick="setTheme('dark')">🌙 Dark</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Providers Section -->
+    <div class="settings-section">
+      <h3>🔌 Providers</h3>
+      <div id="providers-list">
+        <div class="text-center py-3">
+          <div class="loading-spinner"></div>
+          <p class="mt-2 text-muted">Loading providers...</p>
+        </div>
+      </div>
+      <button class="btn btn-primary mt-3" onclick="showAddProviderModal()">
+        + Add Provider
+      </button>
+    </div>
+
+    <!-- Generation Settings Section -->
+    <div class="settings-section">
+      <h3>⚙️ Generation Settings</h3>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Temperature</label>
+          <input type="range" class="form-range" id="temperature" min="0" max="2" step="0.1" value="0.7">
+          <small class="text-muted-dark">Current: <span id="temp-value">0.7</span></small>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Max Tokens</label>
+          <input type="number" class="form-control" id="max-tokens" value="4096" min="1" max="32000">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Provider Modal -->
+  <div class="modal fade" id="providerModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="providerModalTitle">Add Provider</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="provider-id">
+          <div class="mb-3">
+            <label class="form-label">Provider Name</label>
+            <input type="text" class="form-control" id="provider-name" placeholder="e.g., Groq, My Local Ollama">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Type</label>
+            <select class="form-select" id="provider-type" onchange="toggleProviderFields()">
+              <option value="ollama">Ollama (Local)</option>
+              <option value="openai_compatible">OpenAI Compatible (Groq, DeepInfra, etc.)</option>
+            </select>
+          </div>
+          <div id="openai-fields" style="display: none;">
+            <div class="mb-3">
+              <label class="form-label">Base URL</label>
+              <input type="url" class="form-control" id="provider-baseurl" placeholder="https://api.groq.com/openai/v1">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">API Key</label>
+              <input type="password" class="form-control" id="provider-apikey" placeholder="sk-...">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Models</label>
+            <div class="d-flex gap-2 mb-2">
+              <button type="button" class="btn btn-outline-primary btn-sm" onclick="fetchModels()"
+                id="fetch-models-btn">
+                🔄 Fetch Available Models
+              </button>
+            </div>
+            <div id="fetched-models-container" class="fetched-models" style="display: none;">
+              <!-- Fetched models will appear here -->
+            </div>
+            <div class="mt-2">
+              <label class="form-label small">Or add manually:</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="manual-model" placeholder="model-name">
+                <button class="btn btn-outline-secondary" type="button" onclick="addManualModel()">+</button>
+              </div>
+            </div>
+            <div id="selected-models" class="model-list mt-2">
+              <p class="text-muted small mb-0">No models added yet</p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="saveProvider()">Save Provider</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/settings.js"></script>
+</body>
+
+</html>
