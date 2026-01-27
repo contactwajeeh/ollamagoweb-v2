@@ -1,5 +1,7 @@
 # OllamaGoWeb Features
 
+This is a enhanced fork of https://github.com/ml2068/ollamagoweb
+
 A comprehensive LLM chat client built with Go, featuring a modern web interface and support for multiple AI providers.
 
 ---
