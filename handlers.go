@@ -477,6 +477,14 @@ func getSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Decrypt sensitive keys
+	if key == "brave_api_key" && value != "" {
+		decrypted, err := Decrypt(value)
+		if err == nil {
+			value = decrypted
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"key": key, "value": value})
 }
@@ -491,6 +499,16 @@ func updateSetting(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
+	}
+
+	// Encrypt sensitive keys
+	if key == "brave_api_key" && req.Value != "" {
+		encrypted, err := Encrypt(req.Value)
+		if err != nil {
+			http.Error(w, "Failed to encrypt key: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		req.Value = encrypted
 	}
 
 	_, err := db.Exec(`

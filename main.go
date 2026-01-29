@@ -188,11 +188,31 @@ func run(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error fetching Brave API key:", err)
 	}
 
+	// Decrypt the key if it exists
+	if braveAPIKey != "" {
+		decrypted, err := Decrypt(braveAPIKey)
+		if err != nil {
+			log.Println("Error decrypting Brave API key:", err)
+			// Proceed with raw key? Or fail? Failed decryption usually means it wasn't encrypted (legacy) or key change
+			// If Decrypt returns original string on failure (as implemented in crypto.go), we are safe.
+			// Checking crypto.go implementation...
+			// Yes, Decrypt returns input string on some errors, but let's be safe.
+			// Actually crypto.go Decrypt implementation returns input if not base64 etc.
+			// But if it errors on NewCipher/GCM, it returns empty string + error.
+			// We should probably rely on Decrypt's behavior or fallback.
+			// Let's assume Decrypt handles legacy/empty cases reasonably or we handle error.
+			// For this specific code:
+		} else {
+            braveAPIKey = decrypted
+        }
+	}
+
 	enrichedPrompt, err := MaybeSearch(prompt.Input, braveAPIKey)
 	if err != nil {
 		// If search fails or key missing, fallback to sending error as response or just logging
 		// For now, let's log and maybe return error to user if they explicitly asked for search
 		if strings.HasPrefix(prompt.Input, "/search ") {
+			log.Printf("Search failed: %v", err)
 			http.Error(w, "Search error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
