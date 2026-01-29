@@ -477,12 +477,9 @@ func getSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Decrypt sensitive keys
+	// Mask sensitive keys
 	if key == "brave_api_key" && value != "" {
-		decrypted, err := Decrypt(value)
-		if err == nil {
-			value = decrypted
-		}
+		value = "********"
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -498,6 +495,13 @@ func updateSetting(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Ignore if value is the mask
+	if key == "brave_api_key" && req.Value == "********" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Setting updated successfully (unchanged)"})
 		return
 	}
 
