@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"text/template"
 	"time"
@@ -197,14 +198,36 @@ func run(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Using system prompt: %s...\n", truncate(systemPrompt, 50))
 	}
 
-	// Get chat history
-	var history []api.Message
+	// Parse settings
+	maxTokensStr := "4096" // Default
+	db.QueryRow("SELECT value FROM settings WHERE key = 'max_tokens'").Scan(&maxTokensStr)
+	maxTokens := 4096
+	// Simple validation
+	if val, err := strconv.Atoi(maxTokensStr); err == nil && val > 0 {
+		maxTokens = val
+	}
+
+	// Calculate used tokens from system prompt and current input
+	currentTokens := len(prompt.Input) / 4
+	if systemPrompt != "" {
+		currentTokens += len(systemPrompt) / 4
+	}
+
+	remainingTokens := maxTokens - currentTokens
+	if remainingTokens < 0 {
+		remainingTokens = 0
+	}
+
+	// Get chat history (Newest first to prioritize recent context)
+	// Limit to 50 messages to avoid fetching too much unused data
+	var recentHistory []api.Message
 	if prompt.ChatID > 0 {
 		rows, err := db.Query(`
 			SELECT role, content 
 			FROM messages 
 			WHERE chat_id = ? 
-			ORDER BY created_at ASC
+			ORDER BY created_at DESC
+			LIMIT 50
 		`, prompt.ChatID)
 		if err != nil {
 			log.Println("Error fetching history:", err)
@@ -213,24 +236,35 @@ func run(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var role, content string
 				if err := rows.Scan(&role, &content); err == nil {
-					history = append(history, api.Message{
-						Role:    role,
-						Content: content,
-					})
+					// Duplicate check (skip if it matches current input)
+					if role == "user" && content == prompt.Input {
+						continue
+					}
+					
+					// Token check
+					msgTokens := len(content) / 4
+					if remainingTokens-msgTokens >= 0 {
+						recentHistory = append(recentHistory, api.Message{
+							Role:    role,
+							Content: content,
+						})
+						remainingTokens -= msgTokens
+					} else {
+						// Budget exceeded, stop adding older messages
+						break
+					}
 				}
 			}
 		}
 	}
 
-	// Avoid duplicating the last user message if it's already in the database
-	if len(history) > 0 {
-		lastMsg := history[len(history)-1]
-		if lastMsg.Role == "user" && lastMsg.Content == prompt.Input {
-			history = history[:len(history)-1]
-		}
+	// Reverse history to restore chronological order (Oldest -> Newest)
+	history := make([]api.Message, 0, len(recentHistory))
+	for i := len(recentHistory) - 1; i >= 0; i-- {
+		history = append(history, recentHistory[i])
 	}
 
-	log.Printf("Sending %d history messages to provider", len(history))
+	log.Printf("Sending %d history messages (context window) to provider", len(history))
 
 	ctx := r.Context()
 	if err := provider.Generate(ctx, history, prompt.Input, systemPrompt, w); err != nil {
