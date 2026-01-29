@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/joho/godotenv"
+	"github.com/ollama/ollama/api"
 	_ "modernc.org/sqlite"
 )
 
@@ -196,8 +197,43 @@ func run(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Using system prompt: %s...\n", truncate(systemPrompt, 50))
 	}
 
+	// Get chat history
+	var history []api.Message
+	if prompt.ChatID > 0 {
+		rows, err := db.Query(`
+			SELECT role, content 
+			FROM messages 
+			WHERE chat_id = ? 
+			ORDER BY created_at ASC
+		`, prompt.ChatID)
+		if err != nil {
+			log.Println("Error fetching history:", err)
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var role, content string
+				if err := rows.Scan(&role, &content); err == nil {
+					history = append(history, api.Message{
+						Role:    role,
+						Content: content,
+					})
+				}
+			}
+		}
+	}
+
+	// Avoid duplicating the last user message if it's already in the database
+	if len(history) > 0 {
+		lastMsg := history[len(history)-1]
+		if lastMsg.Role == "user" && lastMsg.Content == prompt.Input {
+			history = history[:len(history)-1]
+		}
+	}
+
+	log.Printf("Sending %d history messages to provider", len(history))
+
 	ctx := r.Context()
-	if err := provider.Generate(ctx, prompt.Input, systemPrompt, w); err != nil {
+	if err := provider.Generate(ctx, history, prompt.Input, systemPrompt, w); err != nil {
 		log.Println("Generation error:", err)
 		// Don't write error if we've already started writing
 		// The error will be logged server-side

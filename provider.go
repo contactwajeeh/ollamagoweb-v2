@@ -17,7 +17,7 @@ import (
 
 // Provider interface defines the contract for LLM providers
 type Provider interface {
-	Generate(ctx context.Context, prompt string, systemPrompt string, w http.ResponseWriter) error
+	Generate(ctx context.Context, history []api.Message, prompt string, systemPrompt string, w http.ResponseWriter) error
 	FetchModels(ctx context.Context) ([]ModelInfo, error)
 }
 
@@ -74,7 +74,7 @@ func NewOpenAIProvider(baseURL, apiKey, model string) *OpenAIProvider {
 }
 
 // Generate streams a response from Ollama
-func (p *OllamaProvider) Generate(ctx context.Context, prompt string, systemPrompt string, w http.ResponseWriter) error {
+func (p *OllamaProvider) Generate(ctx context.Context, history []api.Message, prompt string, systemPrompt string, w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -84,17 +84,37 @@ func (p *OllamaProvider) Generate(ctx context.Context, prompt string, systemProm
 		return fmt.Errorf("streaming not supported")
 	}
 
-	req := &api.GenerateRequest{
-		Model:  p.model,
-		Prompt: prompt,
-		System: systemPrompt,
+	messages := append([]api.Message{}, history...)
+	messages = append(messages, api.Message{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	if systemPrompt != "" {
+		// Prepend system prompt if not present (Ollama usually handles this via Modelfile, but explicit is good)
+		// Or simpler: use the System field in ChatRequest if we want to force it
+	}
+
+	req := &api.ChatRequest{
+		Model:    p.model,
+		Messages: messages,
+	}
+
+	// Add system prompt to request if valid
+	if systemPrompt != "" {
+		// For Chat API, systems instructions are usually first message with role "system"
+		// If history already has it, we might duplicate.
+		// Safe bet: Prepend if it's not the first message
+		if len(messages) > 0 && messages[0].Role != "system" {
+			req.Messages = append([]api.Message{{Role: "system", Content: systemPrompt}}, req.Messages...)
+		}
 	}
 
 	var finalMetrics api.Metrics
 	var evalCount int
 
-	respFunc := func(resp api.GenerateResponse) error {
-		w.Write([]byte(resp.Response))
+	respFunc := func(resp api.ChatResponse) error {
+		w.Write([]byte(resp.Message.Content))
 		f.Flush()
 		if resp.Done {
 			finalMetrics = resp.Metrics
@@ -105,7 +125,7 @@ func (p *OllamaProvider) Generate(ctx context.Context, prompt string, systemProm
 		return nil
 	}
 
-	err := p.client.Generate(ctx, req, respFunc)
+	err := p.client.Chat(ctx, req, respFunc)
 	if err != nil {
 		return err
 	}
@@ -114,7 +134,7 @@ func (p *OllamaProvider) Generate(ctx context.Context, prompt string, systemProm
 	analyticsData := map[string]interface{}{
 		"model": p.model,
 	}
-	
+
 	if evalCount > 0 {
 		speed := float64(finalMetrics.EvalCount) / finalMetrics.EvalDuration.Seconds()
 		analyticsData["usage"] = map[string]interface{}{
@@ -164,7 +184,7 @@ type GenerateResponse struct {
 }
 
 // Generate gets a response from OpenAI-compatible API
-func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, systemPrompt string, w http.ResponseWriter) error {
+func (p *OpenAIProvider) Generate(ctx context.Context, history []api.Message, prompt string, systemPrompt string, w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -192,6 +212,22 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, systemProm
 			Role: llms.ChatMessageTypeSystem,
 			Parts: []llms.ContentPart{
 				llms.TextContent{Text: systemPrompt},
+			},
+		})
+	}
+
+	// Add history
+	for _, msg := range history {
+		role := llms.ChatMessageTypeHuman
+		if msg.Role == "assistant" {
+			role = llms.ChatMessageTypeAI
+		} else if msg.Role == "system" {
+			role = llms.ChatMessageTypeSystem
+		}
+		messages = append(messages, llms.MessageContent{
+			Role: role,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: msg.Content},
 			},
 		})
 	}
