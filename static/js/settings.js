@@ -98,14 +98,35 @@ async function loadSettings() {
 
 // Update setting on server
 async function updateSetting(key, value) {
+    // Find the input element associated with this key (heuristic: id matches key with hyphens)
+    const inputId = key.replace(/_/g, '-');
+    const input = document.getElementById(inputId);
+
     try {
-        await fetch(`/api/settings/${key}`, {
+        const res = await fetch(`/api/settings/${key}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ value: String(value) })
         });
+
+        if (input) {
+            if (res.ok) {
+                // Flash green
+                const originalBorder = input.style.borderColor;
+                input.style.borderColor = '#198754'; // Bootstrap success green
+                input.style.boxShadow = '0 0 0 0.25rem rgba(25, 135, 84, 0.25)';
+                setTimeout(() => {
+                    input.style.borderColor = originalBorder;
+                    input.style.boxShadow = '';
+                }, 1000);
+            } else {
+                // Flash red
+                input.style.borderColor = '#dc3545'; // Bootstrap danger red
+            }
+        }
     } catch (err) {
         console.error('Error updating setting:', err);
+        if (input) input.style.borderColor = '#dc3545';
     }
 }
 
