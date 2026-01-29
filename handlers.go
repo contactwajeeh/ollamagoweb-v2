@@ -466,6 +466,8 @@ func getSetting(w http.ResponseWriter, r *http.Request) {
 			value = "0.7"
 		case "max_tokens":
 			value = "4096"
+		case "brave_api_key":
+			value = ""
 		default:
 			http.Error(w, "Setting not found", http.StatusNotFound)
 			return

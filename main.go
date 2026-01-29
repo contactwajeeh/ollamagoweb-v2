@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/template"
 	"time"
@@ -180,6 +181,28 @@ func run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handling Search Logic
+	var braveAPIKey string
+	err := db.QueryRow("SELECT value FROM settings WHERE key = 'brave_api_key'").Scan(&braveAPIKey)
+	if err != nil && err != sql.ErrNoRows {
+		log.Println("Error fetching Brave API key:", err)
+	}
+
+	enrichedPrompt, err := MaybeSearch(prompt.Input, braveAPIKey)
+	if err != nil {
+		// If search fails or key missing, fallback to sending error as response or just logging
+		// For now, let's log and maybe return error to user if they explicitly asked for search
+		if strings.HasPrefix(prompt.Input, "/search ") {
+			http.Error(w, "Search error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Otherwise continue with original prompt
+		enrichedPrompt = prompt.Input
+	}
+
+	// Use enriched prompt for generation, but original prompt was likely saved by frontend
+	// ... continue with generation ...
+
 	// Get system prompt from chat if chatId is provided
 	var systemPrompt string
 	if prompt.ChatID > 0 {
@@ -267,7 +290,7 @@ func run(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Sending %d history messages (context window) to provider", len(history))
 
 	ctx := r.Context()
-	if err := provider.Generate(ctx, history, prompt.Input, systemPrompt, w); err != nil {
+	if err := provider.Generate(ctx, history, enrichedPrompt, systemPrompt, w); err != nil {
 		log.Println("Generation error:", err)
 		// Don't write error if we've already started writing
 		// The error will be logged server-side
