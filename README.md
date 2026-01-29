@@ -1,7 +1,5 @@
 # OllamaGoWeb Features
 
-This is a enhanced fork of https://github.com/ml2068/ollamagoweb
-
 A comprehensive LLM chat client built with Go, featuring a modern web interface and support for multiple AI providers.
 
 ---
@@ -29,6 +27,12 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Rename chats** - Click the edit icon to rename any conversation inline
 - **Delete chats** - Remove conversations you no longer need
 - **Search functionality** - Search through chat titles and message content
+- **Web Search** - use `/search <query>` to enrich your prompts with real-time results from Brave Search
+
+### Context & Memory
+- **Full Conversation Memory** - The LLM remembers previous messages in the chat
+- **Sliding Window Context** - Automatically manages context window to keep the conversation relevant without exceeding token limits
+- **Token Budgeting** - Intelligent management of history within the 4096 (or configured) token limit
 
 ### Message Editing & Versioning
 - **Edit user messages** - Click the pencil icon to modify sent messages inline
@@ -179,6 +183,7 @@ ollamagoweb/
 ├── main.go           # Application entry point and routes
 ├── handlers.go       # HTTP request handlers
 ├── provider.go       # LLM provider implementations
+├── search.go         # Brave Search integration
 ├── database.go       # Database initialization and migrations
 ├── crypto.go         # API key encryption utilities
 ├── static/
@@ -205,4 +210,3 @@ ollamagoweb/
 | **Responsive UI** | Works on desktop and mobile |
 | **Theme support** | Light and dark modes |
 | **No dependencies** | Single binary deployment |
-
