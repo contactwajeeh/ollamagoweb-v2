@@ -25,6 +25,11 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('max-tokens').addEventListener('change', function () {
         updateSetting('max_tokens', this.value);
     });
+
+    // Brave API Key
+    document.getElementById('brave-api-key').addEventListener('change', function () {
+        updateSetting('brave_api_key', this.value);
+    });
 });
 
 // Theme management
@@ -79,6 +84,12 @@ async function loadSettings() {
         if (themeRes.ok) {
             const data = await themeRes.json();
             setTheme(data.value);
+        }
+
+        const braveRes = await fetch('/api/settings/brave_api_key');
+        if (braveRes.ok) {
+            const data = await braveRes.json();
+            document.getElementById('brave-api-key').value = data.value;
         }
     } catch (err) {
         console.error('Error loading settings:', err);
