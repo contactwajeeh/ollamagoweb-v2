@@ -188,6 +188,7 @@ ollamagoweb/
 ├── search.go         # Brave Search integration
 ├── database.go       # Database initialization and migrations
 ├── crypto.go         # API key encryption utilities
+├── search.go         # Brave API Search interface utilities
 ├── static/
 │   ├── index.html    # Main chat interface
 │   ├── settings.html # Settings page
@@ -212,4 +213,5 @@ ollamagoweb/
 | **Responsive UI** | Works on desktop and mobile |
 | **Theme support** | Light and dark modes |
 | **No dependencies** | Single binary deployment |
+
 
