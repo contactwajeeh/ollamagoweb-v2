@@ -207,11 +207,13 @@ ollamagoweb/
 | Feature | Description |
 |---------|-------------|
 | **Multi-provider** | Switch between Ollama, Groq, DeepInfra, and more |
+| **Brave API Search** | use /search in the chat to use Brave API fetched search results to generate current answers, require Brave API Key |
 | **Auto-save** | Never lose a conversation |
 | **Message versioning** | Edit and track message history |
 | **Encrypted secrets** | API keys are securely stored |
 | **Responsive UI** | Works on desktop and mobile |
 | **Theme support** | Light and dark modes |
 | **No dependencies** | Single binary deployment |
+
 
 
