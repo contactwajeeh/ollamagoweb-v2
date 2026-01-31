@@ -35,6 +35,7 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Full Conversation Memory** - The LLM remembers previous messages in the chat
 - **Sliding Window Context** - Automatically manages context window to keep the conversation relevant without exceeding token limits
 - **Token Budgeting** - Intelligent management of history within the 4096 (or configured) token limit
+- **Context Compression** - "Rolling Summary" implementation preserves long-term context by compressing older messages into a concise summary while keeping recent messages raw, significantly reducing token usage.
 
 ### Message Editing & Versioning
 - **Edit user messages** - Click the pencil icon to modify sent messages inline
@@ -188,7 +189,7 @@ ollamagoweb/
 ├── search.go         # Brave Search integration
 ├── database.go       # Database initialization and migrations
 ├── crypto.go         # API key encryption utilities
-├── search.go         # Brave API Search interface utilities
+├── summarizer.go     # Background context summarization
 ├── static/
 │   ├── index.html    # Main chat interface
 │   ├── settings.html # Settings page
@@ -213,7 +214,5 @@ ollamagoweb/
 | **Encrypted secrets** | API keys are securely stored |
 | **Responsive UI** | Works on desktop and mobile |
 | **Theme support** | Light and dark modes |
+| **Context Compression** | "Rolling Summary" reduces token usage for long chats |
 | **No dependencies** | Single binary deployment |
-
-
-
