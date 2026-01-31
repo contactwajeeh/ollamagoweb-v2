@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
@@ -241,36 +241,32 @@ func run(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Using system prompt: %s...\n", truncate(systemPrompt, 50))
 	}
 
-	// Parse settings
-	maxTokensStr := "4096" // Default
-	db.QueryRow("SELECT value FROM settings WHERE key = 'max_tokens'").Scan(&maxTokensStr)
-	maxTokens := 4096
-	// Simple validation
-	if val, err := strconv.Atoi(maxTokensStr); err == nil && val > 0 {
-		maxTokens = val
-	}
+	// Parse settings - maxTokens currently unused with rolling summary
+	// maxTokensStr := "4096"
+	// ...
 
-	// Calculate used tokens from system prompt and current input
-	currentTokens := len(prompt.Input) / 4
-	if systemPrompt != "" {
-		currentTokens += len(systemPrompt) / 4
-	}
-
-	remainingTokens := maxTokens - currentTokens
-	if remainingTokens < 0 {
-		remainingTokens = 0
-	}
-
-	// Get chat history (Newest first to prioritize recent context)
-	// Limit to 50 messages to avoid fetching too much unused data
-	var recentHistory []api.Message
+	// 1. Get Chat Summary
+	var chatSummary sql.NullString
 	if prompt.ChatID > 0 {
+		err := db.QueryRow("SELECT summary FROM chats WHERE id = ?", prompt.ChatID).Scan(&chatSummary)
+		if err != nil {
+			log.Println("Error fetching chat summary:", err)
+		}
+	}
+
+	// 2. Fetch Unsummarized Messages
+	// We fetch ALL unsummarized messages. The sliding window logic might still apply 
+	// if there are too many unsummarized ones, but ideally the summarizer keeps this list short.
+	// For safety, we still apply a limit or token check if implemented, but for now let's just fetch unsummarized.
+	var history []api.Message
+
+	if prompt.ChatID > 0 {
+		// Fetch unsummarized messages
 		rows, err := db.Query(`
-			SELECT role, content 
+			SELECT role, content, model_name 
 			FROM messages 
-			WHERE chat_id = ? 
-			ORDER BY created_at DESC
-			LIMIT 50
+			WHERE chat_id = ? AND is_summarized = 0 
+			ORDER BY id ASC
 		`, prompt.ChatID)
 		if err != nil {
 			log.Println("Error fetching history:", err)
@@ -278,33 +274,26 @@ func run(w http.ResponseWriter, r *http.Request) {
 			defer rows.Close()
 			for rows.Next() {
 				var role, content string
-				if err := rows.Scan(&role, &content); err == nil {
-					// Duplicate check (skip if it matches current input)
-					if role == "user" && content == prompt.Input {
-						continue
-					}
-					
-					// Token check
-					msgTokens := len(content) / 4
-					if remainingTokens-msgTokens >= 0 {
-						recentHistory = append(recentHistory, api.Message{
-							Role:    role,
-							Content: content,
-						})
-						remainingTokens -= msgTokens
-					} else {
-						// Budget exceeded, stop adding older messages
-						break
-					}
+				var modelName sql.NullString
+				if err := rows.Scan(&role, &content, &modelName); err != nil {
+					continue
 				}
+				history = append(history, api.Message{
+					Role:    role,
+					Content: content,
+				})
 			}
 		}
-	}
 
-	// Reverse history to restore chronological order (Oldest -> Newest)
-	history := make([]api.Message, 0, len(recentHistory))
-	for i := len(recentHistory) - 1; i >= 0; i-- {
-		history = append(history, recentHistory[i])
+		// Inject Summary as the first "system" or "context" message if it exists
+		if chatSummary.String != "" {
+			summaryMsg := api.Message{
+				Role:    "system", // Or 'user' with a preamble if system prompt is strict. 'system' is usually best.
+				Content: fmt.Sprintf("Here is a summary of the earlier conversation:\n%s", chatSummary.String),
+			}
+			// Prepend summary
+			history = append([]api.Message{summaryMsg}, history...)
+		}
 	}
 
 	log.Printf("Sending %d history messages (context window) to provider", len(history))
@@ -314,6 +303,11 @@ func run(w http.ResponseWriter, r *http.Request) {
 		log.Println("Generation error:", err)
 		// Don't write error if we've already started writing
 		// The error will be logged server-side
+	}
+
+	// Trigger background summarization check
+	if prompt.ChatID > 0 {
+		MaybeTriggerSummarization(db, prompt.ChatID)
 	}
 }
 

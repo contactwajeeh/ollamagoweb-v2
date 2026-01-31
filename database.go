@@ -101,6 +101,8 @@ func RunMigrations(db *sql.DB) {
 		`ALTER TABLE messages ADD COLUMN tokens_used INTEGER`,
 		`ALTER TABLE chats ADD COLUMN system_prompt TEXT`,
 		`ALTER TABLE messages ADD COLUMN version_group TEXT`,
+		`ALTER TABLE chats ADD COLUMN summary TEXT`,
+		`ALTER TABLE messages ADD COLUMN is_summarized INTEGER DEFAULT 0`,
 	}
 
 	for _, stmt := range alterStatements {
