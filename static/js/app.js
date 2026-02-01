@@ -297,7 +297,6 @@ function renderChatsList(filter = '') {
          data-chat-id="${chat.id}">
       <div class="chat-item-content" onclick="selectChat(${chat.id})">
         <div class="chat-item-title">${escapeHtml(chat.title)}</div>
-        <div class="chat-item-date">${formatDate(chat.updated_at)}</div>
       </div>
       <div class="chat-item-actions">
         <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
