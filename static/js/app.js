@@ -731,7 +731,10 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
 
   // Build metadata HTML
   let metaHtml = '';
-  if (meta.model || meta.tokens || meta.speed) {
+  // Don't show regenerate button for pending messages
+  const showRegenerate = id && !String(id).startsWith('pending');
+
+  if (meta.model || meta.tokens || meta.speed || showRegenerate) {
     metaHtml = '<div class="message-meta">';
     if (meta.model) {
       metaHtml += `<span class="message-meta-item" title="Model"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>${escapeHtml(meta.model)}</span>`;
@@ -742,11 +745,13 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
     if (meta.speed) {
       metaHtml += `<span class="message-meta-item" title="Speed">${escapeHtml(meta.speed)}</span>`;
     }
+
+    if (showRegenerate) {
+      metaHtml += `<button class="regenerate-btn" onclick="regenerateResponse(${id})" title="Regenerate response"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>`;
+    }
+
     metaHtml += '</div>';
   }
-
-  // Don't show regenerate button for pending messages
-  const showRegenerate = id && !String(id).startsWith('pending');
 
   return `
     <div class="message-group assistant-message-group" data-msg-id="${id}">
@@ -754,7 +759,6 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
         <div id="response-${id}" class="response-message">${formattedContent}</div>
         <div id="meta-${id}" class="message-meta-container">
           ${metaHtml}
-          ${showRegenerate ? `<div class="message-actions"><button class="regenerate-btn" onclick="regenerateResponse(${id})" title="Regenerate response">🔄 Regenerate</button></div>` : ''}
         </div>
       </div>
     </div>
@@ -1471,7 +1475,14 @@ async function generateResponse(prompt) {
         const msgGroup = document.querySelector(`[data-msg-id="${assistantMsgId}"]`);
         if (msgGroup && savedMsg.id) {
           msgGroup.dataset.msgId = savedMsg.id;
-          metaEl.insertAdjacentHTML('beforeend', `<div class="message-actions"><button class="regenerate-btn" onclick="regenerateResponse(${savedMsg.id})" title="Regenerate response">🔄 Regenerate</button></div>`);
+          const metaDiv = metaEl.querySelector('.message-meta');
+          const btnHtml = `<button class="regenerate-btn" onclick="regenerateResponse(${savedMsg.id})" title="Regenerate response"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>`;
+
+          if (metaDiv) {
+            metaDiv.insertAdjacentHTML('beforeend', btnHtml);
+          } else {
+            metaEl.innerHTML = `<div class="message-meta">${btnHtml}</div>`;
+          }
         }
       }
     } catch (err) {
