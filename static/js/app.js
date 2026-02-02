@@ -748,7 +748,10 @@ function createUserMessageHtml(id, content) {
     <div id="msg-${id}" class="message-group user-message-group">
       <div class="prompt-message">
         <span class="message-content">${escapeHtml(content)}</span>
-        <button class="message-edit-btn" onclick="editMessage(${id}, 'user')" title="Edit message">✏️</button>
+        <div class="message-actions">
+           <button class="message-btn edit-btn" onclick="editMessage(${id}, 'user')" title="Edit message">✏️</button>
+           <button class="message-btn delete-btn" onclick="deleteMessage(${id})" title="Delete message">🗑️</button>
+        </div>
       </div>
     </div>
   `;
@@ -759,10 +762,10 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
 
   // Build metadata HTML
   let metaHtml = '';
-  // Don't show regenerate button for pending messages
-  const showRegenerate = id && !String(id).startsWith('pending');
+  // Don't show controls for pending messages
+  const showControls = id && !String(id).startsWith('pending');
 
-  if (meta.model || meta.tokens || meta.speed || showRegenerate) {
+  if (meta.model || meta.tokens || meta.speed || showControls) {
     metaHtml = '<div class="message-meta">';
     if (meta.model) {
       metaHtml += `<span class="message-meta-item" title="Model"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>${escapeHtml(meta.model)}</span>`;
@@ -774,8 +777,9 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
       metaHtml += `<span class="message-meta-item" title="Speed">${escapeHtml(meta.speed)}</span>`;
     }
 
-    if (showRegenerate) {
-      metaHtml += `<button class="regenerate-btn" onclick="regenerateResponse(${id})" title="Regenerate response"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>`;
+    if (showControls) {
+      metaHtml += `<button class="message-btn regenerate-btn" onclick="regenerateResponse(${id})" title="Regenerate response"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>`;
+      metaHtml += `<button class="message-btn delete-btn" onclick="deleteMessage(${id})" title="Delete message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>`;
     }
 
     metaHtml += '</div>';
@@ -791,6 +795,33 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
       </div>
     </div>
   `;
+}
+
+// Delete a message
+async function deleteMessage(id) {
+  if (!confirm('Are you sure you want to delete this message?')) return;
+
+  try {
+    const res = await fetch(`/api/messages/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete message');
+
+    // Remove from UI
+    const msgElement = document.getElementById(`msg-${id}`) || document.querySelector(`[data-msg-id="${id}"]`);
+    if (msgElement) {
+      // If it's part of a version group, we might need to handle it differently, 
+      // but simple removal works for now as basic implementation.
+      // If it's a version item, remove the item.
+      if (msgElement.closest('.version-item')) {
+        msgElement.closest('.version-item').remove();
+        // Refesh version nav... simplified for now: just reload chat if complex
+      } else {
+        msgElement.remove();
+      }
+    }
+  } catch (err) {
+    console.error('Error deleting message:', err);
+    alert('Failed to delete message');
+  }
 }
 
 async function sendMessage() {
