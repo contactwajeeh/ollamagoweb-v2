@@ -29,6 +29,8 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Rename chats** - Click the edit icon to rename any conversation inline
 - **Delete chats** - Remove conversations you no longer need
 - **Search functionality** - Search through chat titles and message content
+- **Pinned Chats** - Pin important conversations to the top of the list for quick access
+- **Floating New Chat** - "New Chat" button (FAB) available on mobile for easy access
 - **Web Search** - use `/search <query>` to enrich your prompts with real-time results from Brave Search
 
 ### Context & Memory
