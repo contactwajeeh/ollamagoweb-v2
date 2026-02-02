@@ -605,6 +605,7 @@ type ChatResponse struct {
 	ModelName    string            `json:"model_name,omitempty"`
 	SystemPrompt string            `json:"system_prompt,omitempty"`
 	Messages     []MessageResponse `json:"messages,omitempty"`
+	IsPinned     bool              `json:"is_pinned"`
 	CreatedAt    string            `json:"created_at"`
 	UpdatedAt    string            `json:"updated_at"`
 }
@@ -623,9 +624,9 @@ type MessageResponse struct {
 // getChats returns all chats (without messages for list view)
 func getChats(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
-		SELECT id, title, COALESCE(provider_name, ''), COALESCE(model_name, ''), created_at, updated_at
+		SELECT id, title, COALESCE(provider_name, ''), COALESCE(model_name, ''), created_at, updated_at, is_pinned
 		FROM chats
-		ORDER BY updated_at DESC
+		ORDER BY is_pinned DESC, updated_at DESC
 		LIMIT 50
 	`)
 	if err != nil {
@@ -638,7 +639,7 @@ func getChats(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c ChatResponse
 		var createdAt, updatedAt time.Time
-		err := rows.Scan(&c.ID, &c.Title, &c.ProviderName, &c.ModelName, &createdAt, &updatedAt)
+		err := rows.Scan(&c.ID, &c.Title, &c.ProviderName, &c.ModelName, &createdAt, &updatedAt, &c.IsPinned)
 		if err != nil {
 			log.Println("Error scanning chat:", err)
 			continue
@@ -665,11 +666,11 @@ func searchChats(w http.ResponseWriter, r *http.Request) {
 
 	// Search in both chat titles and message content
 	rows, err := db.Query(`
-		SELECT DISTINCT c.id, c.title, COALESCE(c.provider_name, ''), COALESCE(c.model_name, ''), c.created_at, c.updated_at
+		SELECT DISTINCT c.id, c.title, COALESCE(c.provider_name, ''), COALESCE(c.model_name, ''), c.created_at, c.updated_at, c.is_pinned
 		FROM chats c
 		LEFT JOIN messages m ON c.id = m.chat_id
 		WHERE c.title LIKE ? OR m.content LIKE ?
-		ORDER BY c.updated_at DESC
+		ORDER BY c.is_pinned DESC, c.updated_at DESC
 		LIMIT 50
 	`, searchPattern, searchPattern)
 	if err != nil {
@@ -682,7 +683,7 @@ func searchChats(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c ChatResponse
 		var createdAt, updatedAt time.Time
-		err := rows.Scan(&c.ID, &c.Title, &c.ProviderName, &c.ModelName, &createdAt, &updatedAt)
+		err := rows.Scan(&c.ID, &c.Title, &c.ProviderName, &c.ModelName, &createdAt, &updatedAt, &c.IsPinned)
 		if err != nil {
 			log.Println("Error scanning chat:", err)
 			continue
@@ -708,9 +709,9 @@ func getChat(w http.ResponseWriter, r *http.Request) {
 	var chat ChatResponse
 	var createdAt, updatedAt time.Time
 	err = db.QueryRow(`
-		SELECT id, title, COALESCE(provider_name, ''), COALESCE(model_name, ''), COALESCE(system_prompt, ''), created_at, updated_at
+		SELECT id, title, COALESCE(provider_name, ''), COALESCE(model_name, ''), COALESCE(system_prompt, ''), created_at, updated_at, is_pinned
 		FROM chats WHERE id = ?
-	`, id).Scan(&chat.ID, &chat.Title, &chat.ProviderName, &chat.ModelName, &chat.SystemPrompt, &createdAt, &updatedAt)
+	`, id).Scan(&chat.ID, &chat.Title, &chat.ProviderName, &chat.ModelName, &chat.SystemPrompt, &createdAt, &updatedAt, &chat.IsPinned)
 	if err == sql.ErrNoRows {
 		http.Error(w, "Chat not found", http.StatusNotFound)
 		return
@@ -1082,5 +1083,38 @@ func getSystemPrompt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"system_prompt": systemPrompt,
+	})
+}
+
+
+// togglePinChat toggles the pinned status of a chat
+func togglePinChat(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid chat ID", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		IsPinned bool `json:"is_pinned"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Update the pinned status
+	_, err = db.Exec("UPDATE chats SET is_pinned = ? WHERE id = ?", req.IsPinned, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":   "Chat pin status updated",
+		"is_pinned": req.IsPinned,
 	})
 }

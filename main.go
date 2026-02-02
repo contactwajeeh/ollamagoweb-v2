@@ -82,6 +82,7 @@ func main() {
 	r.Get("/api/chats/{id}", getChat)
 	r.Post("/api/chats/{id}/messages", addMessage)
 	r.Put("/api/chats/{id}/rename", renameChat)
+	r.Put("/api/chats/{id}/pin", togglePinChat)
 	r.Delete("/api/chats/{id}", deleteChat)
 	r.Get("/api/chats/{id}/system-prompt", getSystemPrompt)
 	r.Put("/api/chats/{id}/system-prompt", updateSystemPrompt)
