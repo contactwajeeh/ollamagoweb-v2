@@ -215,6 +215,12 @@ document.addEventListener('DOMContentLoaded', async function () {
     newChatBtn.addEventListener('click', startNewChat);
   }
 
+  // Floating new chat button (mobile)
+  const floatingNewChatBtn = document.getElementById('btnFloatingNewChat');
+  if (floatingNewChatBtn) {
+    floatingNewChatBtn.addEventListener('click', startNewChat);
+  }
+
   // Sidebar toggle (mobile)
   const sidebarToggle = document.getElementById('sidebarToggle');
   if (sidebarToggle) {
