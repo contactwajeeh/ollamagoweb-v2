@@ -303,7 +303,7 @@ function renderChatsList(filter = '') {
          data-chat-id="${chat.id}">
       <div class="chat-item-content" onclick="selectChat(${chat.id})">
         <div class="chat-item-title">
-            ${chat.is_pinned ? '<span class="pin-indicator" title="Pinned">📌</span> ' : ''}${escapeHtml(chat.title)}
+            ${chat.is_pinned ? '<span class="pin-indicator" title="Pinned">📌</span> ' : ''}${escapeHtml(chat.title).replace(/^\/search\s+/, '<span class="search-pill">SEARCH</span> ')}
         </div>
       </div>
       <div class="chat-item-actions">
