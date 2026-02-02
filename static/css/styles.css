@@ -1145,3 +1145,39 @@ code {
 .text-muted-dark {
   color: var(--bs-secondary-color, rgba(255, 255, 255, 0.65)) !important;
 }
+
+/* Floating New Chat Button */
+.floating-new-chat-btn {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 900;
+  transition: all 0.2s ease;
+}
+
+.floating-new-chat-btn:hover {
+  transform: scale(1.1);
+  background: var(--accent-hover);
+}
+
+.floating-new-chat-btn:active {
+  transform: scale(0.95);
+}
+
+/* Hide on desktop, show on mobile (below 768px as standard breakpoint) */
+@media (min-width: 768px) {
+  .floating-new-chat-btn {
+    display: none;
+  }
+}
