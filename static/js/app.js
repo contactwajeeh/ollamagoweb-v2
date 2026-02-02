@@ -293,12 +293,15 @@ function renderChatsList(filter = '') {
   }
 
   container.innerHTML = filteredChats.map(chat => `
-    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''}" 
+    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}" 
          data-chat-id="${chat.id}">
       <div class="chat-item-content" onclick="selectChat(${chat.id})">
-        <div class="chat-item-title">${escapeHtml(chat.title)}</div>
+        <div class="chat-item-title">
+            ${chat.is_pinned ? '<span class="pin-indicator" title="Pinned">📌</span> ' : ''}${escapeHtml(chat.title)}
+        </div>
       </div>
       <div class="chat-item-actions">
+        <button class="chat-item-pin ${chat.is_pinned ? 'pinned' : ''}" onclick="togglePinChat(${chat.id}, ${!chat.is_pinned}, event)" title="${chat.is_pinned ? 'Unpin chat' : 'Pin chat'}">📌</button>
         <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
         <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
       </div>
@@ -597,6 +600,25 @@ async function renameChat(chatId, event) {
       input.blur();
     }
   });
+}
+
+// Toggle chat pinned status
+async function togglePinChat(chatId, isPinned, event) {
+  event.stopPropagation();
+  try {
+    const res = await fetch(`/api/chats/${chatId}/pin`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_pinned: isPinned })
+    });
+
+    if (res.ok) {
+      // Reload list to re-sort
+      loadChatsList();
+    }
+  } catch (err) {
+    console.log('Error pinning chat:', err);
+  }
 }
 
 // Load current/most recent chat
