@@ -217,7 +217,8 @@ body {
 }
 
 .chat-item-rename,
-.chat-item-delete {
+.chat-item-delete,
+.chat-item-pin {
   padding: 4px 6px;
   background: transparent;
   border: none;
@@ -228,6 +229,17 @@ body {
   font-size: 0.85rem;
 }
 
+.chat-item-pin:hover {
+  background: var(--accent-light);
+  color: var(--accent-primary);
+}
+
+.chat-item-pin.pinned {
+  color: var(--accent-primary);
+  opacity: 1;
+  /* Ensure visibility */
+}
+
 .chat-item-rename:hover {
   background: var(--accent-light);
   color: var(--accent-primary);
@@ -236,6 +248,15 @@ body {
 .chat-item-delete:hover {
   background: #ef4444;
   color: white;
+}
+
+.chat-item.pinned {
+  background: var(--bg-tertiary);
+}
+
+.pin-indicator {
+  font-size: 0.8rem;
+  margin-right: 4px;
 }
 
 .sidebar-footer {
