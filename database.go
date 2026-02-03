@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,6 +20,11 @@ func InitDB() *sql.DB {
 	if err != nil {
 		log.Fatal("Failed to open database:", err)
 	}
+
+	// Configure connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	// Test the connection
 	if err := db.Ping(); err != nil {

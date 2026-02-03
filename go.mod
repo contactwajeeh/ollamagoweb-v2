@@ -1,14 +1,14 @@
 module github.com/ml2068/ollamagoweb
 
-go 1.22.0
-
-toolchain go1.22.2
+go 1.24.0
 
 require (
 	github.com/go-chi/chi v1.5.5
+	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/ollama/ollama v0.3.3
 	github.com/tmc/langchaingo v0.1.12
+	golang.org/x/time v0.14.0
 	modernc.org/sqlite v1.28.0
 )
 

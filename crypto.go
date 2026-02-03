@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -18,19 +19,21 @@ var (
 
 // getEncryptionKey returns the encryption key, deriving it from ENCRYPTION_KEY env var
 // or generating a default one based on a machine-specific seed
-func getEncryptionKey() []byte {
+func getEncryptionKey() ([]byte, error) {
+	var keyErr error
 	encryptionKeyOnce.Do(func() {
 		keyStr := os.Getenv("ENCRYPTION_KEY")
 		if keyStr == "" {
-			// Use a default key derived from a constant - in production, 
-			// users should set ENCRYPTION_KEY environment variable
-			keyStr = "ollamagoweb-default-encryption-key-change-me"
+			keyErr = fmt.Errorf("ENCRYPTION_KEY environment variable must be set for production use")
+			return
 		}
-		// Derive a 32-byte key using SHA-256
 		hash := sha256.Sum256([]byte(keyStr))
 		encryptionKey = hash[:]
 	})
-	return encryptionKey
+	if encryptionKey == nil || keyErr != nil {
+		return nil, keyErr
+	}
+	return encryptionKey, nil
 }
 
 // Encrypt encrypts plaintext using AES-256-GCM and returns base64-encoded ciphertext
@@ -39,7 +42,10 @@ func Encrypt(plaintext string) (string, error) {
 		return "", nil
 	}
 
-	key := getEncryptionKey()
+	key, err := getEncryptionKey()
+	if err != nil {
+		return "", err
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
@@ -65,7 +71,10 @@ func Decrypt(ciphertextB64 string) (string, error) {
 		return "", nil
 	}
 
-	key := getEncryptionKey()
+	key, err := getEncryptionKey()
+	if err != nil {
+		return "", err
+	}
 	ciphertext, err := base64.StdEncoding.DecodeString(ciphertextB64)
 	if err != nil {
 		// If it's not base64, it might be a legacy unencrypted key
@@ -116,7 +125,7 @@ func MigrateAPIKey(apiKey string) (string, error) {
 	if apiKey == "" {
 		return "", nil
 	}
-	
+
 	// Check if already encrypted by trying to decrypt
 	if IsEncrypted(apiKey) {
 		// Try decrypting to verify
@@ -126,7 +135,7 @@ func MigrateAPIKey(apiKey string) (string, error) {
 			return apiKey, nil
 		}
 	}
-	
+
 	// Not encrypted, encrypt it
 	return Encrypt(apiKey)
 }

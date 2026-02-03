@@ -38,9 +38,30 @@ func main() {
 	RunMigrations(db)
 	SeedFromEnvIfEmpty(db)
 
+	// Initialize authentication
+	authUser := os.Getenv("AUTH_USER")
+	authPass := os.Getenv("AUTH_PASSWORD")
+	InitAuth(authUser, authPass)
+	go CleanupSessions()
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(RateLimitMiddleware)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Security-Policy",
+				"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:*;")
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	// CSRF token endpoint
+	r.Get("/api/csrf", func(w http.ResponseWriter, r *http.Request) {
+		token := generateCSRFToken()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"token": token})
+	})
 
 	// Static files
 	r.Handle("/static/*", http.StripPrefix("/static",
@@ -93,6 +114,30 @@ func main() {
 
 	// Model switching
 	r.Post("/api/switch-model", switchModel)
+
+	// Metrics endpoint
+	r.Get("/api/metrics", getMetrics)
+
+	// Auth endpoints
+	r.Get("/api/auth/session", sessionStatusHandler)
+	r.Post("/api/auth/login", loginHandler)
+	r.Post("/api/auth/logout", logoutHandler)
+	r.Get("/admin", adminHandler)
+
+	// WebSocket endpoint
+	r.Get("/ws", websocketHandler)
+
+	// Protected routes (apply auth middleware)
+	protected := chi.NewRouter()
+	protected.Use(AuthMiddleware)
+	protected.Get("/api/chats", getChats)
+	protected.Post("/api/chats", createChat)
+	protected.Delete("/api/chats/{id}", deleteChat)
+	protected.Put("/api/chats/{id}/rename", renameChat)
+	protected.Put("/api/chats/{id}/pin", togglePinChat)
+	protected.Post("/api/chats/{id}/messages", addMessage)
+	protected.Delete("/api/messages/{id}", deleteMessage)
+	r.Mount("/", protected)
 
 	// Get port from environment
 	port := os.Getenv("PORT")
@@ -204,8 +249,8 @@ func run(w http.ResponseWriter, r *http.Request) {
 			// Let's assume Decrypt handles legacy/empty cases reasonably or we handle error.
 			// For this specific code:
 		} else {
-            braveAPIKey = decrypted
-        }
+			braveAPIKey = decrypted
+		}
 	}
 
 	enrichedPrompt, err := MaybeSearch(prompt.Input, braveAPIKey)
@@ -256,7 +301,7 @@ func run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Fetch Unsummarized Messages
-	// We fetch ALL unsummarized messages. The sliding window logic might still apply 
+	// We fetch ALL unsummarized messages. The sliding window logic might still apply
 	// if there are too many unsummarized ones, but ideally the summarizer keeps this list short.
 	// For safety, we still apply a limit or token check if implemented, but for now let's just fetch unsummarized.
 	var history []api.Message

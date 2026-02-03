@@ -1,6 +1,6 @@
 # OllamaGoWeb Features
 
-This is a improved / enhanced fork of https://github.com/ml2068/ollamagoweb
+This is an improved/enhanced fork of https://github.com/ml2068/ollamagoweb
 
 A comprehensive LLM chat client built with Go, featuring a modern web interface and support for multiple AI providers.
 
@@ -13,6 +13,13 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Real-time streaming responses** with typewriter animation effect
 - **Markdown rendering** with syntax highlighting for code blocks
 - **Mobile-friendly** sidebar that collapses on smaller screens
+- **Loading skeletons** - Animated placeholder UI while loading
+
+### Accessibility
+- **ARIA labels** - Full screen reader support
+- **Skip link** - Quick navigation to main content
+- **Focus indicators** - Visible focus states for keyboard navigation
+- **Screen reader announcements** - Live region for status updates
 
 ### Theme Support
 - **Light mode** - Clean, bright interface for daytime use
@@ -27,32 +34,36 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Automatic chat saving** - All conversations are automatically saved to the database
 - **Chat history sidebar** - Browse and search through previous conversations
 - **Rename chats** - Click the edit icon to rename any conversation inline
-- **Delete chats** - Remove conversations you no longer need
-- **Search functionality** - Search through chat titles and message content
-- **Pinned Chats** - Pin important conversations to the top of the list for quick access
-- **Floating New Chat** - "New Chat" button (FAB) available on mobile for easy access
-- **Web Search** - use `/search <query>` to enrich your prompts with real-time results from Brave Search
+- **Delete chats** - Remove conversations with 5-second undo option
+- **Pinned Chats** - Pin important conversations to the top of the list
+- **Floating New Chat** - "New Chat" button (FAB) available on mobile
+- **Web Search** - Use `/search <query>` to enrich prompts with Brave Search results
 
-### Context & Memory
-- **Full Conversation Memory** - The LLM remembers previous messages in the chat
-- **Sliding Window Context** - Automatically manages context window to keep the conversation relevant without exceeding token limits
-- **Token Budgeting** - Intelligent management of history within the 4096 (or configured) token limit
-- **Context Compression** - "Rolling Summary" implementation preserves long-term context by compressing older messages into a concise summary while keeping recent messages raw, significantly reducing token usage.
-
-### Message Editing & Versioning
+### Message Features
+- **Copy-to-clipboard** - One-click copy for code blocks and messages
 - **Edit user messages** - Click the pencil icon to modify sent messages inline
-- **Version history** - Edited messages create new versions while preserving the original
-- **Version navigation** - Browse between different versions of a conversation
 - **Regenerate responses** - Request a new AI response for any message
-
-### System Prompts
-- **Per-chat system prompts** - Configure custom instructions for each conversation
-- **Persistent prompts** - System prompts are saved with the chat
-- **Visual indicator** - Badge shows when a system prompt is active
+- **Undo deletion** - 5-second window to undo chat deletion with toast notification
 
 ### Export
-- **Export to HTML** - Save any conversation as a formatted HTML document
+- **Export to HTML** - Save conversations as formatted HTML documents
+- **Export to JSON** - Export chat data in JSON format
 - **Preserves formatting** - Code blocks, markdown, and styling are maintained
+
+### Keyboard Shortcuts
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+N` | New chat |
+| `Ctrl+S` | Export chat |
+| `Arrow Keys` | Navigate chat history |
+| `Delete` | Delete selected chat |
+| `Shift+?` | Show keyboard shortcuts |
+
+### Context & Memory
+- **Full Conversation Memory** - The LLM remembers previous messages
+- **Sliding Window Context** - Manages context window intelligently
+- **Token Budgeting** - Intelligent history management within token limits
+- **Rolling Summary** - Compresses older messages into concise summaries
 
 ---
 
@@ -60,7 +71,7 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 
 ### Multiple Provider Types
 - **Ollama (Local)** - Connect to local Ollama installations
-- **OpenAI-compatible APIs** - Support for various cloud providers:
+- **OpenAI-compatible APIs** - Support for:
   - Groq
   - DeepInfra
   - OpenRouter
@@ -70,90 +81,263 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Add multiple providers** - Configure as many providers as needed
 - **Switch between providers** - Easily activate different providers
 - **Auto-detect models** - Fetch available models from provider APIs
-- **Manual model entry** - Add models manually if auto-fetch isn't available
+- **Manual model entry** - Add models manually if needed
 - **Default model selection** - Set a preferred model for each provider
 
 ### Security
-- **Encrypted API keys** - All API keys are encrypted before storage
-- **Secure key migration** - Existing keys are automatically encrypted on upgrade
+- **Encrypted API keys** - All API keys encrypted with AES-256-GCM
+- **Encryption enforcement** - Application fails if `ENCRYPTION_KEY` not set
+- **Secure key migration** - Existing keys are automatically encrypted
 
 ---
 
-## 🤖 Model Features
+## 🔐 Authentication
 
-### Model Management
-- **Model dropdown** - Quick model switching in the chat header
-- **Provider display** - Shows the active provider name alongside the model
-- **Per-provider models** - Each provider maintains its own model list
-- **Default model** - Set which model to use by default for each provider
+### Session-Based Authentication
+- **Optional authentication** - Enable via environment variables
+- **Secure session cookies** - HttpOnly, Secure, SameSite
+- **SHA-256 password hashing** - Secure credential storage
+- **Session expiration** - 24-hour session TTL with auto-cleanup
 
-### Auto-discovery
-- **Fetch from Ollama** - Automatically discover locally installed models
-- **Fetch from APIs** - Query compatible APIs for available models
-- **Add to provider** - Easily add discovered models to your configuration
+### Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/login` | Authenticate user |
+| `POST` | `/api/auth/logout` | End session |
+| `GET` | `/api/auth/session` | Check session status |
+| `GET` | `/admin` | Admin login page |
+
+### Protected Routes
+When authentication is enabled, these endpoints require a valid session:
+- All `/api/chats/*` endpoints
+- All `/api/messages/*` endpoints
+
+### Configuration
+```bash
+# Enable authentication
+export AUTH_USER=admin
+export AUTH_PASSWORD=your-secure-password
+```
+
+Without `AUTH_USER` and `AUTH_PASSWORD`, the application runs in public mode (no authentication required).
 
 ---
 
-## ⚙️ Settings
+## 📡 WebSocket Support
 
-### Configuration Page
-- **Dedicated settings page** - Centralized configuration interface
-- **Theme selection** - Toggle between light and dark modes
-- **Provider management** - Add, edit, and remove providers
-- **Generation settings** - Configure temperature and max tokens
+### Real-Time Features
+- **Live connections** - Persistent WebSocket connection at `/ws`
+- **Chat rooms** - Join specific chat rooms for targeted updates
+- **Typing indicators** - See when other users are typing
+- **Message broadcasting** - Real-time message delivery
+- **Auto-reconnect** - Built-in ping/pong heartbeat (30s)
 
-### Generation Parameters
-- **Temperature control** - Adjust response creativity (0.0 - 2.0)
-- **Max tokens** - Set the maximum response length
-- **Persistent settings** - All preferences are saved to the database
+### WebSocket Protocol
+
+**Connect:**
+```javascript
+const ws = new WebSocket('ws://localhost:1102/ws');
+```
+
+**Send Messages:**
+```javascript
+// Join a chat room
+ws.send(JSON.stringify({
+  type: 'join_chat',
+  payload: { chat_id: 123 }
+}));
+
+// Leave a chat room
+ws.send(JSON.stringify({
+  type: 'leave_chat'
+}));
+
+// Send typing indicator
+ws.send(JSON.stringify({
+  type: 'typing'
+}));
+```
+
+**Receive Messages:**
+```javascript
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  switch (msg.type) {
+    case 'new_message':
+      // New message received
+      break;
+    case 'user_typing':
+      // User is typing
+      break;
+    case 'chat_updated':
+      // Chat metadata changed
+      break;
+  }
+};
+```
+
+### Hub Functions
+- `WSNotify(messageType, payload)` - Broadcast message to all connected clients
+- `BroadcastChatUpdate(chatID, type, data)` - Broadcast to specific chat room
+- `BroadcastMessage(chatID, message)` - Broadcast new message
+- `WSIsConnected()` - Get count of connected clients
 
 ---
 
-## 📊 Analytics
+## 📊 Analytics & Metrics
 
 ### Response Metadata
 - **Model display** - Shows which model generated each response
 - **Token usage** - Displays tokens used for each response
 - **Generation speed** - Shows tokens per second performance
-- **Visual indicators** - Clean icons for metadata display
+
+### Application Metrics
+- **Endpoint: `GET /api/metrics`**
+  - Chat count
+  - Message count
+  - Provider count
+  - Model count
+  - Uptime
+  - Version
 
 ---
 
-## 🗄️ Database
+## 🔒 Security Features
 
-### SQLite Storage
-- **Embedded database** - No external database server required
-- **Automatic migrations** - Schema updates happen automatically
-- **Foreign key support** - Data integrity is maintained
+### Encryption
+API keys and sensitive configuration are encrypted using AES-256-GCM.
 
-### Data Stored
-- **Providers** - Provider configurations and credentials
-- **Models** - Available models for each provider
-- **Chats** - Conversation history with metadata
-- **Messages** - Full message history with timestamps
-- **Settings** - User preferences and configuration
+**Required for production:**
+```bash
+# Generate a secure key (Linux/Mac)
+openssl rand -hex 32
+
+# Set the environment variable
+export ENCRYPTION_KEY=your-generated-key-here
+```
+
+The application will fail to start if `ENCRYPTION_KEY` is not set in production.
+
+### Rate Limiting
+- 10 requests per second per IP address
+- Burst capacity of 50 requests
+- Configurable via `middleware.go`
+
+### CSRF Protection
+- State-changing API requests require a valid CSRF token
+- Obtain token from: `GET /api/csrf`
+
+### SQL Injection Prevention
+- All user inputs are sanitized before database queries
+- `sanitizeSearchQuery()` function handles search input
+
+### Content Security Policy
+- Strict CSP headers configured
+- Self-referencing directives for scripts and styles
 
 ---
 
-## 🔧 Technical Features
+## 🧪 Testing
 
-### Backend (Go)
-- **Chi router** - Fast and lightweight HTTP routing
-- **Graceful shutdown** - Clean server termination
-- **Request logging** - Built-in middleware for request logging
-- **Error recovery** - Automatic panic recovery
+### Unit Tests
+```bash
+go test -v .
+```
 
-### Frontend
-- **Vanilla JavaScript** - No framework dependencies
-- **CSS Variables** - Easy theming with CSS custom properties
-- **Showdown.js** - Markdown to HTML conversion
-- **Highlight.js** - Syntax highlighting for code blocks
-- **Bootstrap** - UI components and utilities
+**Test Coverage:**
+- `TestSanitizeSearchQuery` - Input sanitization validation
+- `TestWriteError` - Error response formatting
+- `TestWriteJSON` - JSON response helper
+- `TestRateLimitMiddleware` - Rate limiting logic
+- `TestGenerateCSRFToken` - CSRF token generation
 
-### API Endpoints
-- **RESTful design** - Standard HTTP methods (GET, POST, PUT, DELETE)
-- **JSON responses** - Consistent API response format
-- **Streaming support** - Real-time response streaming
+### End-to-End Tests
+```bash
+npm install
+npm run test:e2e
+```
+
+**E2E Tests (Playwright):**
+- Homepage rendering
+- Settings page functionality
+- Keyboard shortcuts validation
+
+---
+
+## ⚡ Performance
+
+### Backend Optimizations
+- **Connection pooling** - 25 max connections, 5 idle, 5-minute lifetime
+- **Message pagination** - Load 50 messages at a time for large chats
+- **Lazy loading** - Chat history loaded on demand
+- **Debounced search** - 300ms debounce for chat search
+
+### Frontend Optimizations
+- **Centralized state management** - `state.js` module
+- **Modular API client** - `api.js` with typed endpoints
+- **Error boundaries** - Graceful error handling with toast notifications
+
+---
+
+## 📡 API Reference
+
+### Core Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/chats` | List all chats |
+| `GET` | `/api/chats/{id}` | Get specific chat |
+| `POST` | `/api/chats` | Create new chat |
+| `DELETE` | `/api/chats/{id}` | Delete chat |
+| `PUT` | `/api/chats/{id}/rename` | Rename chat |
+| `PUT` | `/api/chats/{id}/pin` | Toggle pin |
+| `POST` | `/api/chats/{id}/messages` | Add message |
+| `GET` | `/api/chats/search` | Search chats |
+
+### Provider Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/providers` | List providers |
+| `POST` | `/api/providers` | Create provider |
+| `PUT` | `/api/providers/{id}` | Update provider |
+| `DELETE` | `/api/providers/{id}` | Delete provider |
+| `POST` | `/api/providers/{id}/activate` | Activate provider |
+| `POST` | `/api/providers/{id}/fetch-models` | Fetch models |
+
+### Model Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/models/{providerId}` | Get models |
+| `POST` | `/api/models` | Add model |
+| `DELETE` | `/api/models/{id}` | Delete model |
+| `POST` | `/api/models/{id}/set-default` | Set default |
+
+### Authentication Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/login` | User login |
+| `POST` | `/api/auth/logout` | User logout |
+| `GET` | `/api/auth/session` | Session status |
+| `GET` | `/admin` | Admin login page |
+
+### Utility Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/csrf` | Get CSRF token |
+| `GET` | `/api/metrics` | Get app metrics |
+| `GET` | `/api/settings/{key}` | Get setting |
+| `PUT` | `/api/settings/{key}` | Update setting |
+| `GET` | `/api/active-provider` | Get active provider |
+
+### WebSocket
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/ws` | WebSocket connection |
 
 ---
 
@@ -161,23 +345,48 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 
 ### Prerequisites
 - Go 1.21 or later
-- Ollama (for local models) or an API key for cloud providers
+- Node.js (for E2E tests)
+- Ollama (for local models) or API key for cloud providers
 
 ### Quick Start
-1. Clone the repository
-2. Copy `.env.example` to `.env` and configure
-3. Run `go run .`
-4. Open `http://localhost:1102` in your browser
+```bash
+# Clone the repository
+git clone <repo-url>
+cd ollamagoweb
+
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your configuration
+nano .env
+
+# Run the application
+go run .
+```
+
+### Build
+```bash
+# Build binary
+go build -o ollamagoweb.exe .
+
+# Run tests
+go test -v .
+
+# Run E2E tests
+npm install
+npm run test:e2e
+```
 
 ### Environment Variables
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PORT` | Server port | `1102` |
-| `llm` | Default model | `llama3.1:8b` |
-| `baseUrl` | API base URL (for OpenAI-compatible) | - |
-| `apiKey` | API key (for OpenAI-compatible) | - |
 | `DB_PATH` | SQLite database path | `./ollamagoweb.db` |
 | `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
+| `ENCRYPTION_KEY` | **Required** - Encryption key for API keys | - |
+| `AUTH_USER` | Admin username (optional) | - |
+| `AUTH_PASSWORD` | Admin password (optional) | - |
 
 ---
 
@@ -185,22 +394,37 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 
 ```
 ollamagoweb/
-├── main.go           # Application entry point and routes
-├── handlers.go       # HTTP request handlers
-├── provider.go       # LLM provider implementations
-├── search.go         # Brave Search integration
-├── database.go       # Database initialization and migrations
-├── crypto.go         # API key encryption utilities
-├── summarizer.go     # Background context summarization
+├── main.go              # Application entry point and routes
+├── handlers.go          # HTTP request handlers
+├── middleware.go        # Rate limiting, CSRF
+├── utils.go             # Helper functions
+├── database.go          # Database, migrations, pooling
+├── crypto.go            # Encryption (AES-256-GCM)
+├── auth.go              # Authentication system
+├── websocket.go         # WebSocket hub and handlers
+├── provider.go          # Provider implementations
+├── search.go            # Brave Search integration
+├── summarizer.go        # Context summarization
+│
 ├── static/
-│   ├── index.html    # Main chat interface
-│   ├── settings.html # Settings page
+│   ├── index.html       # Main chat interface
 │   ├── css/
-│   │   └── styles.css
+│   │   └── styles.css  # Styles, accessibility, animations
 │   └── js/
-│       ├── app.js    # Main application logic
-│       └── settings.js
-└── .env              # Configuration file
+│       ├── app.js      # Main application logic
+│       ├── state.js    # ChatState class (centralized state)
+│       ├── api.js      # API client modules
+│       └── settings.js # Settings page logic
+│
+├── e2e/
+│   ├── tests.spec.js   # Playwright E2E tests
+│   └── playwright.config.js
+│
+├── .env.example         # Environment template
+├── .gitignore
+├── package.json        # E2E test scripts
+├── README.md
+└── go.mod
 ```
 
 ---
@@ -209,12 +433,96 @@ ollamagoweb/
 
 | Feature | Description |
 |---------|-------------|
-| **Multi-provider** | Switch between Ollama, Groq, DeepInfra, and more |
-| **Brave API Search** | use /search in the chat to use Brave API fetched search results to generate current answers, require Brave API Key |
-| **Auto-save** | Never lose a conversation |
-| **Message versioning** | Edit and track message history |
-| **Encrypted secrets** | API keys are securely stored |
-| **Responsive UI** | Works on desktop and mobile |
+| **Multi-provider** | Ollama, Groq, DeepInfra, OpenRouter, more |
+| **Brave Search** | `/search <query>` for real-time results |
+| **Auto-save** | Conversations saved automatically |
+| **Message editing** | Edit and track message history |
+| **Encrypted secrets** | AES-256-GCM encryption |
+| **Responsive UI** | Desktop and mobile support |
 | **Theme support** | Light and dark modes |
-| **Context Compression** | "Rolling Summary" reduces token usage for long chats |
-| **No dependencies** | Single binary deployment |
+| **Rolling Summary** | Token-efficient long conversations |
+| **Keyboard shortcuts** | Efficient keyboard navigation |
+| **Export formats** | HTML and JSON export |
+| **Rate limiting** | Abuse prevention |
+| **CSRF protection** | Request validation |
+| **Authentication** | Optional session-based auth |
+| **WebSocket** | Real-time updates |
+| **Unit tests** | Core tests passing |
+| **E2E tests** | Playwright integration tests |
+
+---
+
+## 🐛 Bug Fixes
+
+### SVG Icons Not Appearing
+Fixed icon display issue where deleted/regenerated SVG icons wouldn't appear until page refresh by separating the visibility condition in `createAssistantMessageHtml` function (`app.js`).
+
+---
+
+## 📝 Changelog
+
+### Recent Improvements
+
+1. **Authentication System**
+   - Session-based authentication with secure cookies
+   - SHA-256 password hashing
+   - `/api/auth/*` endpoints
+   - `/admin` login page
+   - Protected routes middleware
+   - Optional auth (enable via `AUTH_USER`/`AUTH_PASSWORD`)
+
+2. **WebSocket Support**
+   - Real-time WebSocket connections at `/ws`
+   - Chat room subscriptions
+   - Typing indicators
+   - Message broadcasting
+   - Auto-reconnect with ping/pong heartbeat
+
+3. **Security Hardening**
+   - Added `ENCRYPTION_KEY` enforcement
+   - Implemented rate limiting middleware
+   - Added CSRF token generation
+   - SQL injection prevention via input sanitization
+   - CSP header configuration
+
+4. **Performance**
+   - Database connection pooling (25 max connections)
+   - Message pagination (50 at a time)
+   - Lazy loading for large chats
+   - Debounced search (300ms)
+
+5. **User Experience**
+   - Accessibility improvements (ARIA, focus states)
+   - Copy-to-clipboard for code blocks
+   - Export to HTML and JSON
+   - Keyboard shortcuts
+   - Undo deletion with toast notification
+   - Loading skeleton animations
+
+6. **Testing**
+   - Unit tests for handlers and middleware
+   - Playwright E2E test setup
+   - Test scripts in package.json
+
+7. **API**
+   - New `/api/csrf` endpoint
+   - New `/api/metrics` endpoint
+   - Consistent JSON response helpers
+   - New `/api/auth/*` endpoints
+   - New `/ws` WebSocket endpoint
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `go test -v .`
+5. Submit a pull request
+
+---
+
+## 📄 License
+
+MIT License - See LICENSE file for details

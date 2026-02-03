@@ -1,0 +1,10 @@
+{
+  "name": "ollamagoweb",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright test --reporter=html"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}
