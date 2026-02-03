@@ -450,68 +450,6 @@ ollamagoweb/
 | **Unit tests** | Core tests passing |
 | **E2E tests** | Playwright integration tests |
 
----
-
-## 🐛 Bug Fixes
-
-### SVG Icons Not Appearing
-Fixed icon display issue where deleted/regenerated SVG icons wouldn't appear until page refresh by separating the visibility condition in `createAssistantMessageHtml` function (`app.js`).
-
----
-
-## 📝 Changelog
-
-### Recent Improvements
-
-1. **Authentication System**
-   - Session-based authentication with secure cookies
-   - SHA-256 password hashing
-   - `/api/auth/*` endpoints
-   - `/admin` login page
-   - Protected routes middleware
-   - Optional auth (enable via `AUTH_USER`/`AUTH_PASSWORD`)
-
-2. **WebSocket Support**
-   - Real-time WebSocket connections at `/ws`
-   - Chat room subscriptions
-   - Typing indicators
-   - Message broadcasting
-   - Auto-reconnect with ping/pong heartbeat
-
-3. **Security Hardening**
-   - Added `ENCRYPTION_KEY` enforcement
-   - Implemented rate limiting middleware
-   - Added CSRF token generation
-   - SQL injection prevention via input sanitization
-   - CSP header configuration
-
-4. **Performance**
-   - Database connection pooling (25 max connections)
-   - Message pagination (50 at a time)
-   - Lazy loading for large chats
-   - Debounced search (300ms)
-
-5. **User Experience**
-   - Accessibility improvements (ARIA, focus states)
-   - Copy-to-clipboard for code blocks
-   - Export to HTML and JSON
-   - Keyboard shortcuts
-   - Undo deletion with toast notification
-   - Loading skeleton animations
-
-6. **Testing**
-   - Unit tests for handlers and middleware
-   - Playwright E2E test setup
-   - Test scripts in package.json
-
-7. **API**
-   - New `/api/csrf` endpoint
-   - New `/api/metrics` endpoint
-   - Consistent JSON response helpers
-   - New `/api/auth/*` endpoints
-   - New `/ws` WebSocket endpoint
-
----
 
 ## 🤝 Contributing
 
