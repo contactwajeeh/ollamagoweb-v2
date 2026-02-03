@@ -7,6 +7,73 @@ var converter = new showdown.Converter({
 });
 let currentChatId = null;
 let chatsList = [];
+let csrfToken = null;
+let messageOffset = 0;
+let hasMoreMessages = true;
+let isLoadingMessages = false;
+const MESSAGE_PAGE_SIZE = 50;
+
+// Deleted chat undo buffer
+let deletedChatBuffer = null;
+let deletedChatTimer = null;
+const UNDO_TIMEOUT = 5000; // 5 seconds to undo
+
+// ============================================
+// Error Boundary & Global Error Handling
+// ============================================
+
+class ErrorBoundary {
+  constructor(onError) {
+    this.onError = onError;
+  }
+
+  wrap(fn, context = '') {
+    return (...args) => {
+      try {
+        return fn(...args);
+      } catch (error) {
+        this.handleError(error, context);
+        return null;
+      }
+    };
+  }
+
+  handleError(error, context = '') {
+    const errorInfo = {
+      message: error.message,
+      stack: error.stack,
+      context,
+      timestamp: new Date().toISOString()
+    };
+    console.error('[ErrorBoundary]', errorInfo);
+    notify.error(`An error occurred${context ? ' in ' + context : ''}`);
+    if (this.onError) this.onError(errorInfo);
+  }
+}
+
+// Global error boundary instance
+const errorBoundary = new ErrorBoundary((errorInfo) => {
+  // Could send to error tracking service here
+  console.error('Global error handler:', errorInfo);
+});
+
+// Wrap commonly used functions
+const safeRender = errorBoundary.wrap((fn, ...args) => fn(...args), 'render');
+
+// Global error handlers
+window.addEventListener('error', (event) => {
+  errorBoundary.handleError(event.error, 'window.onerror');
+  event.preventDefault();
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  errorBoundary.handleError(new Error(event.reason), 'unhandledrejection');
+  event.preventDefault();
+});
+
+// ============================================
+// Utility Functions
+// ============================================
 
 // Utility function
 function escapeHtml(text) {
@@ -69,6 +136,66 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Safe fetch wrapper with error handling
+async function safeFetch(url, options = {}) {
+  try {
+    const headers = {
+      ...options.headers
+    };
+
+    // Add CSRF token if available
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errorMsg = errorData.message || `HTTP ${response.status}`;
+      notify.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      notify.error('Network error. Please check your connection.');
+    }
+    console.error('API Error:', error);
+    throw error;
+  }
+}
+
+// Toast notification system
+function notify(message, type = 'info', duration = 3000) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.style.cssText = `padding:12px 20px;border-radius:8px;color:white;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);animation:slideIn 0.3s ease;background:${type==='error'?'#ef4444':type==='success'?'#22c55e':'#4f39f6'};`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(100%)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+notify.error = (msg) => notify(msg, 'error');
+notify.success = (msg) => notify(msg, 'success');
+
 // Theme management
 function initTheme() {
   const savedTheme = localStorage.getItem('theme') || 'light';
@@ -82,11 +209,10 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   updateThemeIcon(next);
-  fetch('/api/settings/theme', {
+  safeFetch('/api/settings/theme', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ value: next })
-  }).catch(err => console.log('Theme sync error:', err));
+  }).catch(() => {});
 }
 
 function updateThemeIcon(theme) {
@@ -171,12 +297,26 @@ async function switchModel(model) {
 document.addEventListener('DOMContentLoaded', async function () {
   initTheme();
 
+  // Fetch CSRF token
+  try {
+    const csrfRes = await fetch('/api/csrf');
+    if (csrfRes.ok) {
+      const data = await csrfRes.json();
+      csrfToken = data.token;
+    }
+  } catch (e) {
+    console.warn('Could not fetch CSRF token:', e);
+  }
+
   // Load models for dropdown
   await loadModels();
 
   // Load chats list and current chat
   await loadChatsList();
   await loadCurrentChat();
+
+  // Set up lazy loading for large chats
+  setupLazyLoading();
 
   // Set up form submission
   const form = document.getElementById('chatForm');
@@ -206,7 +346,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Save button handler
   const saveBtn = document.getElementById('btnSave');
   if (saveBtn) {
-    saveBtn.addEventListener('click', exportChat);
+    saveBtn.addEventListener('click', showExportMenu);
   }
 
   // New chat button handler
@@ -237,11 +377,180 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Chat search functionality
   const chatSearch = document.getElementById('chatSearch');
   if (chatSearch) {
-    chatSearch.addEventListener('input', function () {
+    chatSearch.addEventListener('input', debounce(function () {
       filterChats(this.value);
-    });
+    }, 300));
   }
+
+  // Set up keyboard shortcuts
+  setupKeyboardShortcuts();
 });
+
+// ============================================
+// Keyboard Shortcuts
+// ============================================
+
+const KeyboardShortcuts = {
+  'Ctrl+N': startNewChat,
+  'Ctrl+S': exportChat,
+  'Ctrl+/': () => document.getElementById('prompt')?.focus(),
+  'Ctrl+[': closeSidebar,
+  'Ctrl+]': openSidebar,
+  'Escape': () => {
+    const modal = document.getElementById('systemPromptModal');
+    if (modal && modal.style.display !== 'none') {
+      closeSystemPromptModal();
+    }
+  },
+  'ArrowUp': navigateChatSelection,
+  'ArrowDown': navigateChatSelection,
+  'Delete': () => {
+    if (selectedChatIdForAction) {
+      confirmDeleteChat(selectedChatIdForAction);
+      selectedChatIdForAction = null;
+    }
+  },
+};
+
+function setupKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    const key = [
+      e.ctrlKey ? 'Ctrl' : '',
+      e.metaKey ? 'Cmd' : '',
+      e.altKey ? 'Alt' : '',
+      e.shiftKey ? 'Shift' : '',
+      e.key
+    ].filter(Boolean).join('+');
+
+    if (KeyboardShortcuts[key]) {
+      e.preventDefault();
+      KeyboardShortcuts[key](e);
+    }
+  });
+
+  // Show keyboard shortcuts help
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '?' && e.shiftKey) {
+      e.preventDefault();
+      showKeyboardShortcutsHelp();
+    }
+  });
+}
+
+function navigateChatSelection(e) {
+  const chats = getChatsList();
+  if (chats.length === 0) return;
+
+  const activeChat = document.querySelector('.chat-item.active');
+  const allChats = Array.from(document.querySelectorAll('.chat-item[data-chat-id]'));
+
+  if (allChats.length === 0) return;
+
+  const currentIndex = activeChat ? allChats.indexOf(activeChat) : -1;
+  let newIndex = currentIndex;
+
+  if (e.key === 'ArrowUp') {
+    newIndex = Math.max(0, currentIndex - 1);
+  } else if (e.key === 'ArrowDown') {
+    newIndex = Math.min(allChats.length - 1, currentIndex + 1);
+  }
+
+  if (newIndex !== currentIndex) {
+    const nextChat = chats[newIndex];
+    if (nextChat) {
+      selectChat(nextChat.id);
+    }
+  }
+}
+
+let selectedChatIdForAction = null;
+
+function deleteSelectedChat() {
+  if (selectedChatIdForAction) {
+    confirmDeleteChat(selectedChatIdForAction);
+    selectedChatIdForAction = null;
+  }
+}
+
+function showKeyboardShortcutsHelp() {
+  if (document.querySelector('.shortcuts-modal-overlay')) {
+    return;
+  }
+
+  const shortcuts = [
+    { keys: 'Ctrl + N', action: 'New chat', icon: '✨' },
+    { keys: 'Ctrl + S', action: 'Export chat', icon: '💾' },
+    { keys: 'Ctrl + /', action: 'Focus input', icon: '📝' },
+    { keys: 'Ctrl + [', action: 'Close sidebar', icon: '◀' },
+    { keys: 'Ctrl + ]', action: 'Open sidebar', icon: '▶' },
+    { keys: '↑ / ↓', action: 'Navigate chats', icon: '🗂️' },
+    { keys: 'Delete', action: 'Delete chat', icon: '🗑️' },
+    { keys: 'Shift + ?', action: 'Show this help', icon: '❓' },
+  ];
+
+  const overlay = document.createElement('div');
+  overlay.className = 'shortcuts-modal-overlay';
+  overlay.onclick = (e) => {
+    if (e.target === overlay) closeKeyboardShortcutsHelp();
+  };
+
+  overlay.innerHTML = `
+    <div class="shortcuts-modal">
+      <div class="shortcuts-header">
+        <h3>Keyboard Shortcuts</h3>
+        <button class="shortcuts-close" onclick="closeKeyboardShortcutsHelp()" aria-label="Close">×</button>
+      </div>
+      <div class="shortcuts-list">
+        ${shortcuts.map(s => `
+          <div class="shortcut-item">
+            <span class="shortcut-keys">
+              <kbd>${s.keys.split(' + ').join('</kbd><kbd>')}</kbd>
+            </span>
+            <span class="shortcut-action">${s.action}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="shortcuts-footer">
+        <p>Press <kbd>Esc</kbd> or click outside to close</p>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+
+  setTimeout(() => overlay.classList.add('show'), 10);
+
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      closeKeyboardShortcutsHelp();
+      document.removeEventListener('keydown', handleEsc);
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
+}
+
+function closeKeyboardShortcutsHelp() {
+  const overlay = document.querySelector('.shortcuts-modal-overlay');
+  if (overlay) {
+    overlay.classList.remove('show');
+    document.body.style.overflow = '';
+    setTimeout(() => overlay.remove(), 200);
+  }
+}
+
+// Utility function - Debounce
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
 
 // Sidebar functions
 function toggleSidebar() {
@@ -306,24 +615,25 @@ function renderChatsList(filter = '') {
             ${chat.is_pinned ? '<span class="pin-indicator" title="Pinned">📌</span> ' : ''}${escapeHtml(chat.title).replace(/^\/search\s+/, '<span class="search-pill">SEARCH</span> ')}
         </div>
       </div>
-      <div class="chat-item-actions">
-        <button class="chat-item-pin ${chat.is_pinned ? 'pinned' : ''}" onclick="togglePinChat(${chat.id}, ${!chat.is_pinned}, event)" title="${chat.is_pinned ? 'Unpin chat' : 'Pin chat'}">📌</button>
-        <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
-        <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
+        <div class="chat-item-actions">
+          <button class="chat-item-pin ${chat.is_pinned ? 'pinned' : ''}" onclick="togglePinChat(${chat.id}, ${!chat.is_pinned}, event)" title="${chat.is_pinned ? 'Unpin chat' : 'Pin chat'}">📌</button>
+          <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
+          <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+
+  // Update selection tracking
+  document.querySelectorAll('.chat-item').forEach(item => {
+    item.addEventListener('click', () => {
+      selectedChatIdForAction = parseInt(item.dataset.chatId);
+    });
+  });
 }
 
 // Filter chats by search query (searches titles and message content via API)
-let searchTimeout = null;
 function filterChats(query) {
   const q = query.trim();
-
-  // Debounce the search
-  if (searchTimeout) {
-    clearTimeout(searchTimeout);
-  }
 
   if (!q) {
     // No query, show all chats from cache
@@ -331,20 +641,14 @@ function filterChats(query) {
     return;
   }
 
-  // Debounce API calls
-  searchTimeout = setTimeout(async () => {
-    try {
-      const res = await fetch(`/api/chats/search?q=${encodeURIComponent(q)}`);
-      if (res.ok) {
-        const results = await res.json();
-        renderSearchResults(results, q);
-      }
-    } catch (err) {
+  // API call is now debounced at the event listener level
+  fetch(`/api/chats/search?q=${encodeURIComponent(q)}`)
+    .then(res => res.json())
+    .then(results => renderSearchResults(results, q))
+    .catch(err => {
       console.log('Search error:', err);
-      // Fallback to client-side title search
       renderChatsList(q);
-    }
-  }, 300);
+    });
 }
 
 function renderSearchResults(results, query) {
@@ -393,6 +697,11 @@ async function selectChat(chatId) {
     closeSidebar();
     return;
   }
+
+  // Reset lazy loading state
+  messageOffset = 0;
+  hasMoreMessages = true;
+  isLoadingMessages = false;
 
   try {
     const res = await fetch(`/api/chats/${chatId}`);
@@ -462,14 +771,15 @@ async function selectChat(chatId) {
             i++;
           }
         } else {
-          // Render regular message
+          // Render regular message with version count
+          const versionCount = countVersions(chat.messages, msg.id);
           if (msg.role === 'user') {
-            printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content));
+            printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content, versionCount));
           } else {
             const meta = {};
             if (msg.model_name) meta.model = msg.model_name;
             if (msg.tokens_used) meta.tokens = msg.tokens_used;
-            printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta));
+            printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta, versionCount));
           }
           i++;
         }
@@ -522,11 +832,16 @@ function createVersionGroupHtml(pairs, versionGroupId) {
 async function deleteChat(chatId, event) {
   event.stopPropagation();
 
-  if (!confirm('Delete this chat?')) return;
-
   try {
     const res = await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete');
+
+    // Store in undo buffer
+    const chatToDelete = chatsList.find(c => c.id === chatId);
+    if (chatToDelete) {
+      deletedChatBuffer = { chat: chatToDelete, timestamp: Date.now() };
+      showUndoNotification(chatToDelete.title);
+    }
 
     // Remove from list
     chatsList = chatsList.filter(c => c.id !== chatId);
@@ -542,7 +857,79 @@ async function deleteChat(chatId, event) {
     }
   } catch (err) {
     console.log('Error deleting chat:', err);
+    notify.error('Failed to delete chat');
   }
+}
+
+function showUndoNotification(chatTitle) {
+  // Clear any existing timer
+  if (deletedChatTimer) {
+    clearTimeout(deletedChatTimer);
+  }
+
+  // Show notification
+  const container = document.getElementById('toast-container') || createToastContainer();
+  const toast = document.createElement('div');
+  toast.className = 'undo-toast';
+  toast.innerHTML = `
+    <span>Chat "${escapeHtml(chatTitle)}" deleted</span>
+    <button onclick="undoDeleteChat()">Undo</button>
+  `;
+  container.appendChild(toast);
+
+  // Set timer for auto-dismiss
+  deletedChatTimer = setTimeout(() => {
+    toast.remove();
+    deletedChatBuffer = null;
+  }, UNDO_TIMEOUT);
+}
+
+function createToastContainer() {
+  const container = document.createElement('div');
+  container.id = 'toast-container';
+  container.style.cssText = 'position:fixed;bottom:80px;left:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;';
+  document.body.appendChild(container);
+  return container;
+}
+
+async function undoDeleteChat() {
+  if (!deletedChatBuffer) return;
+
+  try {
+    const chat = deletedChatBuffer.chat;
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: chat.title })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      chatsList.unshift({ id: data.id, title: chat.title, updated_at: chat.updated_at });
+      renderChatsList();
+      notify.success('Chat restored');
+    }
+  } catch (err) {
+    console.error('Failed to restore chat:', err);
+  }
+
+  // Clear buffer
+  deletedChatBuffer = null;
+  if (deletedChatTimer) {
+    clearTimeout(deletedChatTimer);
+    deletedChatTimer = null;
+  }
+
+  // Remove toast
+  const toast = document.querySelector('.undo-toast');
+  if (toast) toast.remove();
+}
+
+// Delete chat with confirmation
+async function confirmDeleteChat(chatId) {
+  if (!confirm('Delete this chat?')) return;
+  const event = { stopPropagation: () => {} };
+  await deleteChat(chatId, event);
 }
 
 // Rename a chat (inline editing)
@@ -629,6 +1016,11 @@ async function togglePinChat(chatId, isPinned, event) {
 
 // Load current/most recent chat
 async function loadCurrentChat() {
+  // Reset lazy loading state
+  messageOffset = 0;
+  hasMoreMessages = true;
+  isLoadingMessages = false;
+
   try {
     const res = await fetch('/api/chats/current');
     if (!res.ok) return;
@@ -688,18 +1080,20 @@ async function loadCurrentChat() {
             i++;
           }
         } else {
+          const versionCount = countVersions(chat.messages, msg.id);
           if (msg.role === 'user') {
-            printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content));
+            printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content, versionCount));
           } else {
             const meta = {};
             if (msg.model_name) meta.model = msg.model_name;
             if (msg.tokens_used) meta.tokens = msg.tokens_used;
-            printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta));
+            printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta, versionCount));
           }
           i++;
         }
       }
       scrollToBottom();
+      setupCodeBlockCopyButtons();
     }
 
     updateProgressBar(chat.messages ? chat.messages.length : 0);
@@ -743,10 +1137,14 @@ async function startNewChat() {
   }
 }
 
-function createUserMessageHtml(id, content) {
+function createUserMessageHtml(id, content, versionCount = 0) {
+  const versionBadge = versionCount > 1
+    ? `<span class="version-badge" onclick="showVersionHistory('${id}')" title="${versionCount - 1} earlier version${versionCount > 2 ? 's' : ''}">📜 ${versionCount}</span>`
+    : '';
   return `
     <div id="msg-${id}" class="message-group user-message-group">
       <div class="prompt-message">
+        ${versionBadge}
         <span class="message-content">${escapeHtml(content)}</span>
         <div class="message-actions">
            <button class="message-btn edit-btn" onclick="editMessage(${id}, 'user')" title="Edit message">✏️</button>
@@ -757,7 +1155,7 @@ function createUserMessageHtml(id, content) {
   `;
 }
 
-function createAssistantMessageHtml(id, content, isFormatted = false, meta = {}) {
+function createAssistantMessageHtml(id, content, isFormatted = false, meta = {}, versionCount = 0) {
   const formattedContent = isFormatted ? converter.makeHtml(content) : content;
 
   // Build metadata HTML
@@ -778,6 +1176,14 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
       metaHtml += `<span class="message-meta-item" title="Speed">${escapeHtml(meta.speed)}</span>`;
     }
 
+    const versionBadge = versionCount > 1
+      ? `<span class="version-badge" onclick="showVersionHistory('${id}')" title="${versionCount - 1} earlier version${versionCount > 2 ? 's' : ''}">📜 ${versionCount}</span>`
+      : '';
+
+    if (versionBadge) {
+      metaHtml += versionBadge;
+    }
+
     if (showControls) {
       metaHtml += `<button class="message-btn regenerate-btn" onclick="regenerateResponse(${id})" title="Regenerate response"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>`;
       metaHtml += `<button class="message-btn delete-btn" onclick="deleteMessage(${id})" title="Delete message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>`;
@@ -796,6 +1202,175 @@ function createAssistantMessageHtml(id, content, isFormatted = false, meta = {})
       </div>
     </div>
   `;
+}
+
+// Count versions for a message
+function countVersions(messages, msgId) {
+  let count = 0;
+  const msg = messages.find(m => m.id === msgId);
+  if (!msg || !msg.version_group) return 0;
+
+  const versionGroup = msg.version_group;
+  count = messages.filter(m => m.version_group === versionGroup).length;
+  return count;
+}
+
+// Show version history modal
+async function showVersionHistory(msgId) {
+  if (!currentChatId) return;
+
+  const modal = document.createElement('div');
+  modal.className = 'version-modal-overlay';
+  modal.innerHTML = `
+    <div class="version-modal">
+      <div class="version-modal-header">
+        <h3>Version History</h3>
+        <button class="version-modal-close" onclick="closeVersionModal()">×</button>
+      </div>
+      <div class="version-modal-content" id="versionModalContent">
+        <div class="version-loading">Loading versions...</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  setTimeout(() => modal.classList.add('show'), 10);
+
+  try {
+    const res = await fetch(`/api/chats/${currentChatId}`);
+    if (!res.ok) throw new Error('Failed to load chat');
+    const chat = await res.json();
+
+    const versions = {};
+    chat.messages.forEach(m => {
+      if (m.version_group) {
+        if (!versions[m.version_group]) versions[m.version_group] = [];
+        versions[m.version_group].push(m);
+      }
+    });
+
+    let versionGroup = null;
+    const msg = chat.messages.find(m => m.id === msgId);
+    if (msg && msg.version_group) {
+      versionGroup = versions[msg.version_group];
+    }
+
+    if (!versionGroup || versionGroup.length === 0) {
+      document.getElementById('versionModalContent').innerHTML = '<p>No version history available</p>';
+      return;
+    }
+
+    versionGroup.sort((a, b) => a.id - b.id);
+
+    let html = '<div class="version-list">';
+    versionGroup.forEach((v, idx) => {
+      const isLatest = idx === versionGroup.length - 1;
+      const roleLabel = v.role === 'user' ? 'You' : 'Assistant';
+      const roleClass = v.role === 'user' ? 'version-role-user' : 'version-role-assistant';
+      html += `
+        <div class="version-item-modal ${isLatest ? 'latest' : ''}">
+          <div class="version-header">
+            <span class="version-badge-label ${roleClass}">${roleLabel}</span>
+            <span class="version-number">v${idx + 1}${isLatest ? ' (current)' : ''}</span>
+            <span class="version-time">${new Date(v.created_at || Date.now()).toLocaleString()}</span>
+          </div>
+          <div class="version-content">${escapeHtml(v.content)}</div>
+          ${isLatest ? '' : `<button class="version-restore-btn" onclick="restoreVersion(${v.id})">Restore this version</button>`}
+        </div>
+      `;
+    });
+    html += '</div>';
+    document.getElementById('versionModalContent').innerHTML = html;
+  } catch (err) {
+    document.getElementById('versionModalContent').innerHTML = `<p class="version-error">Error loading versions: ${err.message}</p>`;
+  }
+}
+
+function closeVersionModal() {
+  const modal = document.querySelector('.version-modal-overlay');
+  if (modal) {
+    modal.classList.remove('show');
+    setTimeout(() => modal.remove(), 300);
+  }
+}
+
+async function restoreVersion(msgId) {
+  if (!confirm('Restore this version? Your current version will be added to history.')) return;
+
+  const printout = document.getElementById('printout');
+  if (!printout) return;
+
+  closeVersionModal();
+
+  const userMsg = document.querySelector('.version-item-modal .version-role-user');
+  if (userMsg) {
+    const content = userMsg.nextElementSibling?.textContent;
+    if (content) {
+      await editMessage(msgId, 'user');
+      setTimeout(async () => {
+        const textarea = document.querySelector('.inline-edit-textarea');
+        if (textarea) {
+          textarea.value = content;
+          textarea.dataset.originalContent = content;
+          const saveBtn = document.querySelector('.inline-edit-btn.save');
+          if (saveBtn) saveBtn.click();
+        }
+      }, 100);
+    }
+  }
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.classList.contains('version-modal-overlay')) {
+    closeVersionModal();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeVersionModal();
+});
+
+// Copy to clipboard functionality
+async function copyToClipboard(text, buttonElement = null) {
+  try {
+    await navigator.clipboard.writeText(text);
+    notify.success('Copied to clipboard');
+
+    // Visual feedback on button
+    if (buttonElement) {
+      const originalContent = buttonElement.innerHTML;
+      buttonElement.innerHTML = '✓';
+      setTimeout(() => {
+        buttonElement.innerHTML = originalContent;
+      }, 1500);
+    }
+  } catch (err) {
+    notify.error('Failed to copy');
+    console.error('Copy failed:', err);
+  }
+}
+
+// Add copy buttons to code blocks
+function setupCodeBlockCopyButtons() {
+  document.querySelectorAll('.response-message pre').forEach(pre => {
+    // Check if already has copy button
+    if (pre.parentElement.querySelector('.copy-code-btn')) return;
+
+    const button = document.createElement('button');
+    button.className = 'copy-code-btn';
+    button.innerHTML = '📋';
+    button.title = 'Copy code';
+    button.setAttribute('aria-label', 'Copy code to clipboard');
+
+    button.addEventListener('click', () => {
+      const code = pre.querySelector('code');
+      const text = code ? code.textContent : pre.textContent;
+      copyToClipboard(text, button);
+    });
+
+    pre.style.position = 'relative';
+    pre.appendChild(button);
+  });
 }
 
 // Delete a message
@@ -883,6 +1458,7 @@ async function sendMessage() {
   // Display user message
   const printout = document.getElementById('printout');
   printout.insertAdjacentHTML('beforeend', createUserMessageHtml(userMsgId || Date.now(), prompt));
+  announce('Message sent. Waiting for AI response...');
 
   // Create placeholder for assistant response
   const assistantMsgId = 'pending-' + Date.now();
@@ -947,6 +1523,7 @@ async function sendMessage() {
     await typewriterEffect(outputEl, formattedHtml, 8);
     // Final highlight pass for any code blocks
     outputEl.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+    setupCodeBlockCopyButtons();
 
     // Display analytics metadata
     const metaEl = document.getElementById(`meta-${assistantMsgId}`);
@@ -1031,18 +1608,179 @@ function scrollToBottom() {
   }
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+// Announce to screen readers
+function announce(message) {
+  const region = document.getElementById('a11y-announcements');
+  if (region) {
+    region.textContent = message;
+    // Clear after announcement
+    setTimeout(() => { region.textContent = ''; }, 1000);
+  }
 }
 
-function exportChat() {
+// Export menu handlers
+function showExportMenu(event) {
+  event?.stopPropagation?.();
+  const menu = document.getElementById('exportMenu');
+  if (menu) {
+    menu.style.display = 'flex';
+    menu.style.alignItems = 'center';
+    menu.style.justifyContent = 'center';
+  }
+}
+
+function closeExportMenu() {
+  const menu = document.getElementById('exportMenu');
+  if (menu) {
+    menu.style.display = 'none';
+  }
+}
+
+// Close export menu when clicking outside
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('exportMenu');
+  const menuContent = menu?.querySelector('.modal-content');
+  if (menu && menu.style.display !== 'none' && !menuContent.contains(e.target)) {
+    closeExportMenu();
+  }
+});
+
+// ============================================
+// Skeleton Loading UI
+// ============================================
+
+function createUserSkeleton() {
+  return `
+    <div class="loading-skeleton user-message-group">
+      <div class="skeleton skeleton-avatar"></div>
+      <div class="skeleton-content">
+        <div class="skeleton skeleton-text"></div>
+        <div class="skeleton skeleton-text short"></div>
+      </div>
+    </div>
+  `;
+}
+
+function createAssistantSkeleton() {
+  return `
+    <div class="loading-skeleton assistant-message-group">
+      <div class="skeleton skeleton-avatar"></div>
+      <div class="skeleton-content">
+        <div class="skeleton skeleton-text"></div>
+        <div class="skeleton skeleton-text"></div>
+        <div class="skeleton skeleton-text medium"></div>
+      </div>
+    </div>
+  `;
+}
+
+function showLoadingSkeleton(count = 3) {
+  const printout = document.getElementById('printout');
+  if (!printout) return;
+
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    html += createAssistantSkeleton();
+  }
+  printout.innerHTML = html;
+}
+
+function removeLoadingSkeleton() {
+  const printout = document.getElementById('printout');
+  if (!printout) return;
+
+  const skeletons = printout.querySelectorAll('.loading-skeleton');
+  skeletons.forEach(s => s.remove());
+}
+
+// ============================================
+// Lazy Loading for Large Chats
+// ============================================
+
+async function loadMoreMessages() {
+  if (isLoadingMessages || !hasMoreMessages || !currentChatId) return;
+
+  isLoadingMessages = true;
+  const nextOffset = messageOffset + MESSAGE_PAGE_SIZE;
+
+  try {
+    const res = await fetch(`/api/chats/${currentChatId}?limit=${MESSAGE_PAGE_SIZE}&offset=${nextOffset}`);
+    if (!res.ok) {
+      hasMoreMessages = false;
+      return;
+    }
+
+    const chat = await res.json();
+    if (!chat.messages || chat.messages.length === 0) {
+      hasMoreMessages = false;
+      return;
+    }
+
+    // Add messages to beginning of existing content
+    const printout = document.getElementById('printout');
+    if (printout && chat.messages.length > 0) {
+      // Insert messages at the beginning
+      const tempDiv = document.createElement('div');
+      for (const msg of chat.messages) {
+        const versionCount = countVersions(chat.messages, msg.id);
+        const msgHtml = msg.role === 'user'
+          ? createUserMessageHtml(msg.id, msg.content, versionCount)
+          : createAssistantMessageHtml(msg.id, msg.content, false, { model: msg.model_name, tokens: msg.tokens_used }, versionCount);
+        tempDiv.innerHTML += msgHtml;
+      }
+
+      // Insert before the first child
+      const loadingIndicator = printout.querySelector('.loading-more-indicator');
+      if (loadingIndicator) {
+        printout.insertBefore(tempDiv.firstElementChild, loadingIndicator);
+      } else {
+        printout.insertBefore(tempDiv.firstElementChild, printout.firstChild);
+      }
+
+      messageOffset = nextOffset;
+      if (chat.messages.length < MESSAGE_PAGE_SIZE) {
+        hasMoreMessages = false;
+      }
+
+      // Add copy buttons to code blocks
+      setupCodeBlockCopyButtons();
+    }
+  } catch (err) {
+    console.warn('Failed to load more messages:', err);
+    hasMoreMessages = false;
+  } finally {
+    isLoadingMessages = false;
+  }
+}
+
+// Set up scroll listener for lazy loading
+function setupLazyLoading() {
+  const messagesContainer = document.getElementById('chatMessages');
+  if (!messagesContainer) return;
+
+  messagesContainer.removeEventListener('scroll', handleMessagesScroll);
+  messagesContainer.addEventListener('scroll', handleMessagesScroll, { passive: true });
+}
+
+function handleMessagesScroll(e) {
+  const container = e.target;
+  if (container.scrollTop < 100 && hasMoreMessages && !isLoadingMessages) {
+    loadMoreMessages();
+  }
+}
+
+function exportChat(format = 'html') {
   const printout = document.getElementById('printout');
   if (!printout) return;
 
   const date = new Date();
-  const fileName = `chat_${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+  const timestamp = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+  const fileName = `chat_${timestamp}`;
+
+  if (format === 'json') {
+    exportChatJSON(fileName);
+    return;
+  }
 
   const llmTag = document.getElementById('llmtag');
   const providerInfo = llmTag ? llmTag.textContent : '';
@@ -1063,7 +1801,7 @@ function exportChat() {
   </style>
 </head>
 <body>
-  <h1>💬 Chat Export</h1>
+  <h1>Chat Export</h1>
   <p><small>Provider: ${providerInfo} | Exported: ${date.toLocaleString()}</small></p>
   <hr>
   ${printout.innerHTML}
@@ -1077,6 +1815,39 @@ function exportChat() {
   a.download = `${fileName}.html`;
   a.click();
   URL.revokeObjectURL(url);
+
+  announce('Chat exported as HTML');
+}
+
+function exportChatJSON(fileName) {
+  const printout = document.getElementById('printout');
+  if (!printout) return;
+
+  const messages = [];
+  printout.querySelectorAll('.message-group').forEach(group => {
+    const isUser = group.classList.contains('user-message-group');
+    const content = group.querySelector('.message-content, .response-message');
+    messages.push({
+      role: isUser ? 'user' : 'assistant',
+      content: content ? content.textContent.trim() : ''
+    });
+  });
+
+  const exportData = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    messages
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${fileName}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  announce('Chat exported as JSON');
 }
 
 // Edit message functionality with version history
