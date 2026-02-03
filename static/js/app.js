@@ -293,38 +293,6 @@ async function switchModel(model) {
   }
 }
 
-// ============================================
-// Keyboard Shortcuts
-// ============================================
-
-const KeyboardShortcuts = {
-  'Ctrl+N': 'startNewChat',
-  'Ctrl+S': 'exportChat',
-  'Ctrl+/': 'focusPrompt',
-  'Ctrl+[': 'closeSidebar',
-  'Ctrl+]': 'openSidebar',
-  'Escape': 'closeModal',
-  'ArrowUp': 'navigateChatSelection',
-  'ArrowDown': 'navigateChatSelection',
-  'Delete': 'deleteSelectedChat',
-};
-
-const KeyboardShortcutsActions = {
-  startNewChat,
-  exportChat,
-  focusPrompt: () => document.getElementById('prompt')?.focus(),
-  closeSidebar,
-  openSidebar,
-  closeModal: () => {
-    const modal = document.getElementById('systemPromptModal');
-    if (modal && modal.style.display !== 'none') {
-      closeSystemPromptModal();
-    }
-  },
-  navigateChatSelection,
-  deleteSelectedChat,
-};
-
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function () {
   initTheme();
@@ -579,6 +547,22 @@ function closeSidebar() {
   sidebar.classList.remove('open');
   const overlay = document.querySelector('.sidebar-overlay');
   if (overlay) overlay.classList.remove('show');
+}
+
+function openSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.add('open');
+  let overlay = document.querySelector('.sidebar-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'sidebar-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.classList.add('show');
+}
+
+function getChatsList() {
+  return chatsList;
 }
 
 // Load chats list for sidebar
@@ -1143,6 +1127,38 @@ async function startNewChat() {
     console.log('Error creating chat:', err);
   }
 }
+
+// ============================================
+// Keyboard Shortcuts
+// ============================================
+
+const KeyboardShortcuts = {
+  'Ctrl+N': 'startNewChat',
+  'Ctrl+S': 'exportChat',
+  'Ctrl+/': 'focusPrompt',
+  'Ctrl+[': 'closeSidebar',
+  'Ctrl+]': 'openSidebar',
+  'Escape': 'closeModal',
+  'ArrowUp': 'navigateChatSelection',
+  'ArrowDown': 'navigateChatSelection',
+  'Delete': 'deleteSelectedChat',
+};
+
+const KeyboardShortcutsActions = {
+  startNewChat,
+  exportChat,
+  focusPrompt: () => document.getElementById('prompt')?.focus(),
+  closeSidebar,
+  openSidebar,
+  closeModal: () => {
+    const modal = document.getElementById('systemPromptModal');
+    if (modal && modal.style.display !== 'none') {
+      closeSystemPromptModal();
+    }
+  },
+  navigateChatSelection,
+  deleteSelectedChat,
+};
 
 function createUserMessageHtml(id, content, versionCount = 0) {
   const versionBadge = versionCount > 1
