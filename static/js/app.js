@@ -293,6 +293,38 @@ async function switchModel(model) {
   }
 }
 
+// ============================================
+// Keyboard Shortcuts
+// ============================================
+
+const KeyboardShortcuts = {
+  'Ctrl+N': 'startNewChat',
+  'Ctrl+S': 'exportChat',
+  'Ctrl+/': 'focusPrompt',
+  'Ctrl+[': 'closeSidebar',
+  'Ctrl+]': 'openSidebar',
+  'Escape': 'closeModal',
+  'ArrowUp': 'navigateChatSelection',
+  'ArrowDown': 'navigateChatSelection',
+  'Delete': 'deleteSelectedChat',
+};
+
+const KeyboardShortcutsActions = {
+  startNewChat,
+  exportChat,
+  focusPrompt: () => document.getElementById('prompt')?.focus(),
+  closeSidebar,
+  openSidebar,
+  closeModal: () => {
+    const modal = document.getElementById('systemPromptModal');
+    if (modal && modal.style.display !== 'none') {
+      closeSystemPromptModal();
+    }
+  },
+  navigateChatSelection,
+  deleteSelectedChat,
+};
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function () {
   initTheme();
@@ -386,32 +418,6 @@ document.addEventListener('DOMContentLoaded', async function () {
   setupKeyboardShortcuts();
 });
 
-// ============================================
-// Keyboard Shortcuts
-// ============================================
-
-const KeyboardShortcuts = {
-  'Ctrl+N': startNewChat,
-  'Ctrl+S': exportChat,
-  'Ctrl+/': () => document.getElementById('prompt')?.focus(),
-  'Ctrl+[': closeSidebar,
-  'Ctrl+]': openSidebar,
-  'Escape': () => {
-    const modal = document.getElementById('systemPromptModal');
-    if (modal && modal.style.display !== 'none') {
-      closeSystemPromptModal();
-    }
-  },
-  'ArrowUp': navigateChatSelection,
-  'ArrowDown': navigateChatSelection,
-  'Delete': () => {
-    if (selectedChatIdForAction) {
-      confirmDeleteChat(selectedChatIdForAction);
-      selectedChatIdForAction = null;
-    }
-  },
-};
-
 function setupKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
     const key = [
@@ -424,7 +430,8 @@ function setupKeyboardShortcuts() {
 
     if (KeyboardShortcuts[key]) {
       e.preventDefault();
-      KeyboardShortcuts[key](e);
+      const action = KeyboardShortcutsActions[KeyboardShortcuts[key]];
+      if (action) action(e);
     }
   });
 
