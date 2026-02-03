@@ -608,20 +608,20 @@ function renderChatsList(filter = '') {
   }
 
   container.innerHTML = filteredChats.map(chat => `
-    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}" 
-         data-chat-id="${chat.id}">
-      <div class="chat-item-content" onclick="selectChat(${chat.id})">
+    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}"
+         data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
+      <div class="chat-item-content">
         <div class="chat-item-title">
             ${chat.is_pinned ? '<span class="pin-indicator" title="Pinned">📌</span> ' : ''}${escapeHtml(chat.title).replace(/^\/search\s+/, '<span class="search-pill">SEARCH</span> ')}
         </div>
       </div>
-        <div class="chat-item-actions">
-          <button class="chat-item-pin ${chat.is_pinned ? 'pinned' : ''}" onclick="togglePinChat(${chat.id}, ${!chat.is_pinned}, event)" title="${chat.is_pinned ? 'Unpin chat' : 'Pin chat'}">📌</button>
-          <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
-          <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
-        </div>
+      <div class="chat-item-actions" onclick="event.stopPropagation()">
+        <button class="chat-item-pin ${chat.is_pinned ? 'pinned' : ''}" onclick="togglePinChat(${chat.id}, ${!chat.is_pinned}, event)" title="${chat.is_pinned ? 'Unpin chat' : 'Pin chat'}">📌</button>
+        <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
+        <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
       </div>
-    `).join('');
+    </div>
+  `).join('');
 
   // Update selection tracking
   document.querySelectorAll('.chat-item').forEach(item => {
@@ -660,13 +660,13 @@ function renderSearchResults(results, query) {
   }
 
   container.innerHTML = results.map(chat => `
-    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''}" 
-         data-chat-id="${chat.id}">
-      <div class="chat-item-content" onclick="selectChat(${chat.id})">
+    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''}"
+         data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
+      <div class="chat-item-content">
         <div class="chat-item-title">${escapeHtml(chat.title)}</div>
         <div class="chat-item-date">${formatDate(chat.updated_at)}</div>
       </div>
-      <div class="chat-item-actions">
+      <div class="chat-item-actions" onclick="event.stopPropagation()">
         <button class="chat-item-rename" onclick="renameChat(${chat.id}, event)" title="Rename chat">✏️</button>
         <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
       </div>
