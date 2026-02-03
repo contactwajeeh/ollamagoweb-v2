@@ -378,7 +378,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   const chatSearch = document.getElementById('chatSearch');
   if (chatSearch) {
     chatSearch.addEventListener('input', debounce(function () {
-      filterChats(this.value);
+      filterChats(chatSearch.value);
     }, 300));
   }
 
