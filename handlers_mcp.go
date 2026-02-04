@@ -232,11 +232,6 @@ func (h *MCPServerHandler) getAllTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add server_id to each tool
-	for i := range tools {
-		tools[i].ServerID = servers[i].ID
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"tools": tools,
