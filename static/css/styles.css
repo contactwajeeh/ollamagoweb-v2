@@ -587,31 +587,51 @@ body {
 }
 
 /* Make tables scrollable on small screens */
-.response-message table {
-  display: block;
+.response-message .table-wrapper {
   overflow-x: auto;
+  margin: 16px 0;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.response-message table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  background: var(--bg-primary);
+  min-width: 100%;
+}
+
+.response-message th {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   white-space: nowrap;
 }
 
-.response-message thead,
-.response-message tbody,
-.response-message tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
+.response-message td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+  max-width: 300px;
+  word-wrap: break-word;
 }
 
-/* Allow text wrap in cells when screen is wide enough */
-@media (min-width: 768px) {
-  .response-message table {
-    white-space: normal;
-  }
+.response-message tbody tr:last-child td {
+  border-bottom: none;
+}
 
-  .response-message th,
-  .response-message td {
-    white-space: normal;
-    word-wrap: break-word;
-  }
+.response-message tbody tr:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+.response-message tbody tr:hover {
+  background: var(--accent-light);
 }
 
 .message-meta {
