@@ -302,6 +302,187 @@ async function switchModel(model) {
   }
 }
 
+// MCP Tool Management
+let mcpTools = [];
+let selectedMCPTool = null;
+
+async function loadMCPTools() {
+  const selector = document.getElementById('mcpToolSelector');
+  if (!selector) return;
+
+  try {
+    const res = await fetch('/api/mcp/tools');
+    if (!res.ok) {
+      selector.classList.remove('visible');
+      return;
+    }
+
+    const data = await res.json();
+    mcpTools = data.tools || [];
+
+    if (mcpTools.length === 0) {
+      selector.classList.remove('visible');
+      return;
+    }
+
+    selector.classList.add('visible');
+    const select = document.getElementById('mcpToolSelect');
+    select.innerHTML = '<option value="">-- Select Tool --</option>' +
+      mcpTools.map(tool =>
+        `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}</option>`
+      ).join('');
+
+    select.addEventListener('change', onMCPToolSelect);
+  } catch (err) {
+    console.log('Error loading MCP tools:', err);
+    selector.classList.remove('visible');
+  }
+}
+
+function onMCPToolSelect(e) {
+  const toolName = e.target.value;
+  const paramsContainer = document.getElementById('mcpToolParams');
+  const form = document.getElementById('mcpToolParamsForm');
+
+  if (!toolName) {
+    paramsContainer.classList.remove('visible');
+    selectedMCPTool = null;
+    return;
+  }
+
+  selectedMCPTool = mcpTools.find(t => t.name === toolName);
+  if (!selectedMCPTool) {
+    paramsContainer.classList.remove('visible');
+    return;
+  }
+
+  renderToolParamsForm(selectedMCPTool, form);
+  paramsContainer.classList.add('visible');
+}
+
+function renderToolParamsForm(tool, container) {
+  const schema = tool.input_schema || {};
+  const properties = schema.properties || {};
+  const required = schema.required || [];
+
+  if (Object.keys(properties).length === 0) {
+    container.innerHTML = '<p class="text-muted small">No parameters required</p>';
+    return;
+  }
+
+  let html = '';
+  for (const [name, prop] of Object.entries(properties)) {
+    const isRequired = required.includes(name);
+    const type = prop.type || 'string';
+    const description = prop.description || '';
+    const placeholder = prop.default || '';
+
+    const inputType = type === 'integer' || type === 'number' ? 'number' : (type === 'boolean' ? 'checkbox' : 'text');
+    const inputClass = type === 'boolean' ? '' : (type === 'string' && (prop.enum || name.length > 50)) ? 'mcp-param-textarea' : 'mcp-param-input';
+
+    html += `<div class="mcp-param-group">
+      <label class="mcp-param-label" for="mcp-param-${escapeHtml(name)}">
+        ${escapeHtml(name)}${isRequired ? ' *' : ''}
+      </label>
+      ${type === 'boolean'
+        ? `<input type="checkbox" id="mcp-param-${escapeHtml(name)}" name="${escapeHtml(name)}" class="mcp-param-input">`
+        : `<input type="${inputType}" id="mcp-param-${escapeHtml(name)}" name="${escapeHtml(name)}"
+          class="mcp-param-input" placeholder="${escapeHtml(placeholder)}"
+          ${prop.minimum !== undefined ? `min="${prop.minimum}"` : ''}
+          ${prop.maximum !== undefined ? `max="${prop.maximum}"` : ''}>`
+      }
+      ${description ? `<small class="text-muted">${escapeHtml(description)}</small>` : ''}
+    </div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+async function runMCPTool() {
+  if (!selectedMCPTool) return;
+
+  const runBtn = document.getElementById('mcpToolRunBtn');
+  runBtn.disabled = true;
+  runBtn.textContent = 'Running...';
+
+  try {
+    const schema = selectedMCPTool.input_schema || {};
+    const properties = schema.properties || {};
+    const required = schema.required || [];
+
+    const arguments = {};
+    for (const [name, prop] of Object.entries(properties)) {
+      const input = document.getElementById(`mcp-param-${name}`);
+      if (!input) continue;
+
+      const type = prop.type || 'string';
+      if (type === 'boolean') {
+        arguments[name] = input.checked;
+      } else if (type === 'integer') {
+        arguments[name] = parseInt(input.value) || 0;
+      } else if (type === 'number') {
+        arguments[name] = parseFloat(input.value) || 0;
+      } else {
+        arguments[name] = input.value;
+      }
+    }
+
+    // Validate required fields
+    for (const field of required) {
+      if (arguments[field] === undefined || arguments[field] === '' || arguments[field] === null) {
+        alert(`Please fill in the required field: ${field}`);
+        runBtn.disabled = false;
+        runBtn.textContent = 'Run Tool';
+        return;
+      }
+    }
+
+    // Find server ID from tool name (format: servername_toolname)
+    const toolParts = selectedMCPTool.name.split('_');
+    const serverId = mcpTools.find(t => t.name === selectedMCPTool.name)?.server_id;
+
+    const res = await fetch('/api/mcp/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        server_id: serverId,
+        tool_name: selectedMCPTool.name,
+        arguments
+      })
+    });
+
+    if (!res.ok) {
+      const error = await res.text();
+      throw new Error(error);
+    }
+
+    const result = await res.json();
+
+    // Display result in chat
+    addMessage({
+      role: 'assistant',
+      content: `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`,
+      done: true
+    });
+
+    // Hide params after successful run
+    document.getElementById('mcpToolParams').classList.remove('visible');
+    document.getElementById('mcpToolSelect').value = '';
+    selectedMCPTool = null;
+
+  } catch (err) {
+    console.error('Error running MCP tool:', err);
+    addMessage({
+      role: 'assistant',
+      content: `**Error running MCP tool:** ${err.message}`,
+      done: true
+    });
+  } finally {
+    runBtn.disabled = false;
+    runBtn.textContent = 'Run Tool';
+  }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async function () {
   initTheme();
@@ -319,6 +500,15 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   // Load models for dropdown
   await loadModels();
+
+  // Load MCP tools
+  await loadMCPTools();
+
+  // Set up MCP tool run button
+  const mcpRunBtn = document.getElementById('mcpToolRunBtn');
+  if (mcpRunBtn) {
+    mcpRunBtn.addEventListener('click', runMCPTool);
+  }
 
   // Load chats list and current chat
   await loadChatsList();
