@@ -1,10 +1,10 @@
 package mcp
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -146,13 +146,19 @@ func (c *MCPClient) parseJSONTools(response map[string]interface{}) ([]MCPTool, 
 }
 
 func (c *MCPClient) parseSSETools(resp *http.Response) ([]MCPTool, error) {
-	scanner := bufio.NewScanner(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	bodyStr := string(body)
+	lines := strings.Split(bodyStr, "\n")
 	var jsonData string
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "data: ") {
-			jsonData = line[6:]
+			jsonData = strings.TrimPrefix(line, "data: ")
 			break
 		}
 	}
@@ -167,6 +173,36 @@ func (c *MCPClient) parseSSETools(resp *http.Response) ([]MCPTool, error) {
 	}
 
 	return c.parseJSONTools(response)
+}
+
+func (c *MCPClient) parseSSEContent(resp *http.Response) ([]byte, error) {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	bodyStr := string(body)
+	lines := strings.Split(bodyStr, "\n")
+	var jsonData string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data: ") {
+			jsonData = strings.TrimPrefix(line, "data: ")
+			break
+		}
+	}
+
+	if jsonData == "" {
+		return nil, fmt.Errorf("no data in SSE response")
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
+		return nil, fmt.Errorf("failed to parse SSE data: %w", err)
+	}
+
+	return c.parseJSONContent(response)
 }
 
 func (c *MCPClient) extractTools(toolsArr []interface{}) ([]MCPTool, error) {
@@ -295,30 +331,6 @@ func (c *MCPClient) parseJSONContent(response map[string]interface{}) ([]byte, e
 	}
 
 	return []byte(responseBuilder.String()), nil
-}
-
-func (c *MCPClient) parseSSEContent(resp *http.Response) ([]byte, error) {
-	scanner := bufio.NewScanner(resp.Body)
-	var jsonData string
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "data: ") {
-			jsonData = line[6:]
-			break
-		}
-	}
-
-	if jsonData == "" {
-		return nil, fmt.Errorf("no data in SSE response")
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
-		return nil, fmt.Errorf("failed to parse SSE data: %w", err)
-	}
-
-	return c.parseJSONContent(response)
 }
 
 func (c *MCPClient) DisconnectServer(serverID int64) {
