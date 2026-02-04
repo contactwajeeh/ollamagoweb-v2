@@ -307,9 +307,10 @@ let mcpTools = [];
 let selectedMCPTool = null;
 
 async function loadMCPTools() {
-  const selector = document.getElementById('mcpToolSelector');
-  if (!selector) {
-    console.warn('MCP tool selector element not found');
+  const mcpBadge = document.querySelector('.mcp-badge');
+  const mcpSelect = document.getElementById('mcpToolSelect');
+  if (!mcpBadge || !mcpSelect) {
+    console.warn('MCP tool elements not found');
     return;
   }
 
@@ -317,7 +318,8 @@ async function loadMCPTools() {
     const res = await fetch('/api/mcp/servers/tools');
     if (!res.ok) {
       console.warn('MCP tools request failed:', res.status);
-      selector.classList.remove('visible');
+      mcpBadge.style.display = 'none';
+      mcpSelect.style.display = 'none';
       return;
     }
 
@@ -325,19 +327,21 @@ async function loadMCPTools() {
     mcpTools = data.tools || [];
 
     if (mcpTools.length === 0) {
-      selector.classList.remove('visible');
+      mcpBadge.style.display = 'none';
+      mcpSelect.style.display = 'none';
       return;
     }
 
-    selector.classList.add('visible');
-    const select = document.getElementById('mcpToolSelect');
-    select.innerHTML = '<option value="">-- Select Tool --</option>' +
+    mcpBadge.style.display = 'inline-block';
+    mcpSelect.style.display = 'block';
+    mcpSelect.innerHTML = '<option value="">-- Select Tool --</option>' +
       mcpTools.map(tool =>
         `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}</option>`
       ).join('');
   } catch (err) {
     console.error('Error loading MCP tools:', err);
-    selector.classList.remove('visible');
+    mcpBadge.style.display = 'none';
+    mcpSelect.style.display = 'none';
   }
 }
 
@@ -524,18 +528,42 @@ async function runMCPTool() {
 
     const result = await res.json();
 
+    let toolResult;
+    if (result.results && Array.isArray(result.results)) {
+      toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${JSON.stringify(result.results, null, 2)}`;
+    } else {
+      toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`;
+    }
+
+    // Display collapsible accordion in chat
+    const printout = document.getElementById('printout');
+    const welcome = document.getElementById('welcomeMessage');
+    if (welcome) welcome.style.display = 'none';
+
+    const accordionId = `mcp-accordion-${Date.now()}`;
+    const accordionHtml = `
+      <div class="message-group assistant-message-group">
+        <div class="response-wrapper">
+          <div class="response-message">
+            <div class="mcp-accordion">
+              <button class="mcp-accordion-header" onclick="toggleMcpAccordion('${accordionId}')">
+                <span class="mcp-accordion-icon">▶</span>
+                <span class="mcp-accordion-title">MCP Tool Result (${selectedMCPTool.name})</span>
+              </button>
+              <div id="${accordionId}" class="mcp-accordion-content" style="display: none;">
+                <pre class="mcp-tool-output"><code>${escapeHtml(toolResult)}</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    printout.insertAdjacentHTML('beforeend', accordionHtml);
+
     // Append result to user input textarea
     const textarea = document.getElementById('prompt');
     if (textarea) {
       const currentContent = textarea.value.trim();
-      let toolResult;
-
-      if (result.results && Array.isArray(result.results)) {
-        toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${JSON.stringify(result.results, null, 2)}`;
-      } else {
-        toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`;
-      }
-
       textarea.value = currentContent ? `${currentContent}\n\n${toolResult}` : toolResult;
       textarea.focus();
     }
@@ -543,23 +571,69 @@ async function runMCPTool() {
     // Close modal and reset after successful run
     closeMCPToolModal();
 
+    // Scroll to bottom
+    scrollToBottom();
+
   } catch (err) {
     console.error('Error running MCP tool:', err);
+
+    const errorText = `**Error running MCP tool:** ${err.message}`;
+
+    // Display collapsible accordion in chat for error
+    const printout = document.getElementById('printout');
+    const welcome = document.getElementById('welcomeMessage');
+    if (welcome) welcome.style.display = 'none';
+
+    const accordionId = `mcp-error-${Date.now()}`;
+    const accordionHtml = `
+      <div class="message-group assistant-message-group">
+        <div class="response-wrapper">
+          <div class="response-message">
+            <div class="mcp-accordion mcp-accordion-error">
+              <button class="mcp-accordion-header" onclick="toggleMcpAccordion('${accordionId}')">
+                <span class="mcp-accordion-icon">▶</span>
+                <span class="mcp-accordion-title" style="color: var(--color-error);">Error running MCP tool</span>
+              </button>
+              <div id="${accordionId}" class="mcp-accordion-content" style="display: none;">
+                <pre class="mcp-tool-output"><code>${escapeHtml(err.message)}</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    printout.insertAdjacentHTML('beforeend', accordionHtml);
 
     // Append error to user input textarea
     const textarea = document.getElementById('prompt');
     if (textarea) {
       const currentContent = textarea.value.trim();
-      const errorText = `**Error running MCP tool:** ${err.message}`;
       textarea.value = currentContent ? `${currentContent}\n\n${errorText}` : errorText;
       textarea.focus();
     }
 
     // Close modal and reset after error
     closeMCPToolModal();
+
+    // Scroll to bottom
+    scrollToBottom();
   } finally {
     runBtn.disabled = false;
     runBtn.textContent = 'Run Tool';
+  }
+}
+
+// Toggle MCP accordion
+function toggleMcpAccordion(id) {
+  const content = document.getElementById(id);
+  const header = content.previousElementSibling;
+
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    header.classList.add('active');
+  } else {
+    content.style.display = 'none';
+    header.classList.remove('active');
   }
 }
 
