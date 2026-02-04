@@ -2,12 +2,15 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Session struct {
@@ -23,16 +26,34 @@ type User struct {
 }
 
 var (
-	sessions    = make(map[string]Session)
-	sessionMu   sync.RWMutex
 	sessionTTL  = 24 * time.Hour
-	sessionKey  string
+	sessionMu   sync.RWMutex
 	authEnabled = false
 	adminUser   User
 )
 
-func init() {
-	sessionKey = generateSecureToken(32)
+func InitAuth(username, password string) {
+	if username == "" || password == "" {
+		authEnabled = false
+		return
+	}
+	authEnabled = true
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Error hashing password: %v", err)
+		return
+	}
+
+	adminUser = User{
+		ID:       "admin",
+		Username: username,
+		Password: string(hash),
+	}
+}
+
+func IsAuthEnabled() bool {
+	return authEnabled
 }
 
 func generateSecureToken(length int) string {
@@ -42,38 +63,30 @@ func generateSecureToken(length int) string {
 }
 
 func hashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password + sessionKey))
-	return base64.StdEncoding.EncodeToString(hash[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Error hashing password: %v", err)
+		return ""
+	}
+	return string(hash)
 }
 
-func InitAuth(username, password string) {
-	if username == "" || password == "" {
-		authEnabled = false
-		return
-	}
-	authEnabled = true
-
-	adminUser = User{
-		ID:       "admin",
-		Username: username,
-		Password: hashPassword(password),
-	}
-}
-
-func IsAuthEnabled() bool {
-	return authEnabled
+func checkPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 func CreateSession(userID string) string {
-	sessionMu.Lock()
-	defer sessionMu.Unlock()
-
 	sessionID := generateSecureToken(32)
-	sessions[sessionID] = Session{
-		ID:        sessionID,
-		UserID:    userID,
-		ExpiresAt: time.Now().Add(sessionTTL),
+	expiresAt := time.Now().Add(sessionTTL)
+
+	_, err := db.Exec(`
+		INSERT OR REPLACE INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)
+	`, sessionID, userID, expiresAt)
+	if err != nil {
+		log.Printf("Error saving session to database: %v", err)
 	}
+
 	return sessionID
 }
 
@@ -82,16 +95,21 @@ func ValidateSession(sessionID string) bool {
 		return false
 	}
 
-	sessionMu.RLock()
-	defer sessionMu.RUnlock()
+	var expiresAt time.Time
+	err := db.QueryRow(`
+		SELECT expires_at FROM sessions WHERE id = ?
+	`, sessionID).Scan(&expiresAt)
 
-	session, exists := sessions[sessionID]
-	if !exists {
+	if err == sql.ErrNoRows {
+		return false
+	}
+	if err != nil {
+		log.Printf("Error validating session: %v", err)
 		return false
 	}
 
-	if time.Now().After(session.ExpiresAt) {
-		delete(sessions, sessionID)
+	if time.Now().After(expiresAt) {
+		db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
 		return false
 	}
 
@@ -99,9 +117,10 @@ func ValidateSession(sessionID string) bool {
 }
 
 func DestroySession(sessionID string) {
-	sessionMu.Lock()
-	defer sessionMu.Unlock()
-	delete(sessions, sessionID)
+	_, err := db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
+	if err != nil {
+		log.Printf("Error deleting session: %v", err)
+	}
 }
 
 func CleanupSessions() {
@@ -109,14 +128,10 @@ func CleanupSessions() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		sessionMu.Lock()
-		now := time.Now()
-		for id, session := range sessions {
-			if now.After(session.ExpiresAt) {
-				delete(sessions, id)
-			}
+		_, err := db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now())
+		if err != nil {
+			log.Printf("Error cleaning up expired sessions: %v", err)
 		}
-		sessionMu.Unlock()
 	}
 }
 
@@ -188,7 +203,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if hashPassword(req.Password) != adminUser.Password {
+	if !checkPassword(req.Password, adminUser.Password) {
 		WriteError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}

@@ -9,10 +9,16 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/ollama/ollama/api"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
+)
+
+var (
+	llmCache   = make(map[string]*openai.LLM)
+	llmCacheMu sync.RWMutex
 )
 
 // Provider interface defines the contract for LLM providers
@@ -71,6 +77,36 @@ func NewOpenAIProvider(baseURL, apiKey, model string) *OpenAIProvider {
 		apiKey:  apiKey,
 		model:   model,
 	}
+}
+
+func getCachedLLM(baseURL, apiKey, model string) (*openai.LLM, error) {
+	cacheKey := baseURL + "|" + apiKey + "|" + model
+
+	llmCacheMu.RLock()
+	if llm, ok := llmCache[cacheKey]; ok {
+		llmCacheMu.RUnlock()
+		return llm, nil
+	}
+	llmCacheMu.RUnlock()
+
+	llmCacheMu.Lock()
+	defer llmCacheMu.Unlock()
+
+	if llm, ok := llmCache[cacheKey]; ok {
+		return llm, nil
+	}
+
+	llm, err := openai.New(
+		openai.WithModel(model),
+		openai.WithBaseURL(baseURL),
+		openai.WithToken(apiKey),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI client: %w", err)
+	}
+
+	llmCache[cacheKey] = llm
+	return llm, nil
 }
 
 // Generate streams a response from Ollama
@@ -194,13 +230,9 @@ func (p *OpenAIProvider) Generate(ctx context.Context, history []api.Message, pr
 		return fmt.Errorf("streaming not supported")
 	}
 
-	llm, err := openai.New(
-		openai.WithModel(p.model),
-		openai.WithBaseURL(p.baseURL),
-		openai.WithToken(p.apiKey),
-	)
+	llm, err := getCachedLLM(p.baseURL, p.apiKey, p.model)
 	if err != nil {
-		return fmt.Errorf("failed to create OpenAI client: %w", err)
+		return err
 	}
 
 	// Build messages array

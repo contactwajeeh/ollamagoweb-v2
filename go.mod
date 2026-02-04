@@ -4,10 +4,10 @@ go 1.24.0
 
 require (
 	github.com/go-chi/chi v1.5.5
-	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/ollama/ollama v0.3.3
 	github.com/tmc/langchaingo v0.1.12
+	golang.org/x/crypto v0.38.0
 	golang.org/x/time v0.14.0
 	modernc.org/sqlite v1.28.0
 )
@@ -21,7 +21,7 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/mod v0.16.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/tools v0.14.0 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
 	modernc.org/cc/v3 v3.40.0 // indirect

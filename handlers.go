@@ -61,9 +61,9 @@ func settingsPage(w http.ResponseWriter, r *http.Request) {
 
 func getProviders(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
-		SELECT id, name, type, COALESCE(base_url, ''), api_key IS NOT NULL AND api_key != '', is_active, created_at, updated_at
-		FROM providers
-		ORDER BY is_active DESC, name ASC
+		SELECT p.id, p.name, p.type, COALESCE(p.base_url, ''), p.api_key IS NOT NULL AND p.api_key != '', p.is_active, p.created_at, p.updated_at
+		FROM providers p
+		ORDER BY p.is_active DESC, p.name ASC
 	`)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, err.Error())
@@ -71,22 +71,102 @@ func getProviders(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	providers := []ProviderResponse{}
+	type providerWithModels struct {
+		ID        int64
+		Name      string
+		Type      string
+		BaseURL   string
+		HasAPIKey bool
+		IsActive  bool
+		CreatedAt time.Time
+		UpdatedAt time.Time
+	}
+
+	var providersWithIDs []providerWithModels
+
 	for rows.Next() {
-		var p ProviderResponse
-		var createdAt, updatedAt time.Time
-		err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.BaseURL, &p.HasAPIKey, &p.IsActive, &createdAt, &updatedAt)
+		var p providerWithModels
+		err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.BaseURL, &p.HasAPIKey, &p.IsActive, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			log.Println("Error scanning provider:", err)
 			continue
 		}
-		p.CreatedAt = createdAt.Format(time.RFC3339)
-		p.UpdatedAt = updatedAt.Format(time.RFC3339)
-		p.Models = getModelsForProvider(p.ID)
-		providers = append(providers, p)
+		providersWithIDs = append(providersWithIDs, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		WriteError(w, http.StatusInternalServerError, "Error iterating providers: "+err.Error())
+		return
+	}
+
+	if len(providersWithIDs) == 0 {
+		WriteJSON(w, []ProviderResponse{})
+		return
+	}
+
+	providerIDs := make([]int64, len(providersWithIDs))
+	for i, p := range providersWithIDs {
+		providerIDs[i] = p.ID
+	}
+
+	modelsByProviderID := make(map[int64][]ModelResponse)
+	modelRows, err := db.Query(`
+		SELECT id, model_name, is_default, provider_id
+		FROM models
+		WHERE provider_id IN (`+placeholders(len(providerIDs))+`)
+		ORDER BY is_default DESC, model_name ASC
+	`, intsToInterfaces(providerIDs...)...)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer modelRows.Close()
+
+	for modelRows.Next() {
+		var m ModelResponse
+		var providerID int64
+		if err := modelRows.Scan(&m.ID, &m.ModelName, &m.IsDefault, &providerID); err != nil {
+			log.Println("Error scanning model:", err)
+			continue
+		}
+		modelsByProviderID[providerID] = append(modelsByProviderID[providerID], m)
+	}
+
+	providers := make([]ProviderResponse, 0, len(providersWithIDs))
+	for _, p := range providersWithIDs {
+		providers = append(providers, ProviderResponse{
+			ID:        p.ID,
+			Name:      p.Name,
+			Type:      p.Type,
+			BaseURL:   p.BaseURL,
+			HasAPIKey: p.HasAPIKey,
+			IsActive:  p.IsActive,
+			CreatedAt: p.CreatedAt.Format(time.RFC3339),
+			UpdatedAt: p.UpdatedAt.Format(time.RFC3339),
+			Models:    modelsByProviderID[p.ID],
+		})
 	}
 
 	WriteJSON(w, providers)
+}
+
+func intsToInterfaces(ints ...int64) []interface{} {
+	ifaces := make([]interface{}, len(ints))
+	for i, v := range ints {
+		ifaces[i] = v
+	}
+	return ifaces
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	result := "?"
+	for i := 1; i < n; i++ {
+		result += ", ?"
+	}
+	return result
 }
 
 func getModelsForProvider(providerID int64) []ModelResponse {
@@ -154,15 +234,21 @@ func createProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerID, _ := result.LastInsertId()
+	providerID, err := result.LastInsertId()
+	if err != nil {
+		log.Println("Error getting last insert ID:", err)
+	}
 
 	for i, model := range req.Models {
 		isDefault := 0
 		if i == 0 {
 			isDefault = 1
 		}
-		db.Exec(`INSERT INTO models (provider_id, model_name, is_default) VALUES (?, ?, ?)`,
+		_, err := db.Exec(`INSERT INTO models (provider_id, model_name, is_default) VALUES (?, ?, ?)`,
 			providerID, model, isDefault)
+		if err != nil {
+			log.Println("Error inserting model:", err)
+		}
 	}
 
 	WriteJSON(w, map[string]interface{}{
@@ -231,14 +317,22 @@ func deleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM providers").Scan(&count)
+	err = db.QueryRow("SELECT COUNT(*) FROM providers").Scan(&count)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if count <= 1 {
 		WriteError(w, http.StatusBadRequest, "Cannot delete the last provider")
 		return
 	}
 
 	var isActive int
-	db.QueryRow("SELECT is_active FROM providers WHERE id = ?", id).Scan(&isActive)
+	err = db.QueryRow("SELECT is_active FROM providers WHERE id = ?", id).Scan(&isActive)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	_, err = db.Exec("DELETE FROM providers WHERE id = ?", id)
 	if err != nil {
@@ -247,7 +341,10 @@ func deleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isActive == 1 {
-		db.Exec("UPDATE providers SET is_active = 1 WHERE id = (SELECT id FROM providers LIMIT 1)")
+		_, err = db.Exec("UPDATE providers SET is_active = 1 WHERE id = (SELECT id FROM providers LIMIT 1)")
+		if err != nil {
+			log.Println("Error setting new active provider:", err)
+		}
 	}
 
 	WriteJSON(w, map[string]string{"message": "Provider deleted successfully"})
@@ -261,7 +358,10 @@ func activateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db.Exec("UPDATE providers SET is_active = 0")
+	_, err = db.Exec("UPDATE providers SET is_active = 0")
+	if err != nil {
+		log.Println("Error deactivating all providers:", err)
+	}
 	_, err = db.Exec("UPDATE providers SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, err.Error())
@@ -354,7 +454,10 @@ func addModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.IsDefault {
-		db.Exec("UPDATE models SET is_default = 0 WHERE provider_id = ?", req.ProviderID)
+		_, err := db.Exec("UPDATE models SET is_default = 0 WHERE provider_id = ?", req.ProviderID)
+		if err != nil {
+			log.Println("Error clearing default models:", err)
+		}
 	}
 
 	result, err := db.Exec(`
@@ -365,7 +468,10 @@ func addModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modelID, _ := result.LastInsertId()
+	modelID, err := result.LastInsertId()
+	if err != nil {
+		log.Println("Error getting last insert ID:", err)
+	}
 
 	WriteJSON(w, map[string]interface{}{
 		"id":      modelID,
@@ -405,7 +511,10 @@ func setDefaultModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db.Exec("UPDATE models SET is_default = 0 WHERE provider_id = ?", providerID)
+	_, err = db.Exec("UPDATE models SET is_default = 0 WHERE provider_id = ?", providerID)
+	if err != nil {
+		log.Println("Error clearing default models:", err)
+	}
 	_, err = db.Exec("UPDATE models SET is_default = 1 WHERE id = ?", id)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, err.Error())
@@ -535,8 +644,14 @@ func switchModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db.Exec("UPDATE models SET is_default = 0 WHERE provider_id = ?", config.ID)
-	db.Exec("UPDATE models SET is_default = 1 WHERE id = ?", modelID)
+	_, err = db.Exec("UPDATE models SET is_default = 0 WHERE provider_id = ?", config.ID)
+	if err != nil {
+		log.Println("Error clearing default models:", err)
+	}
+	_, err = db.Exec("UPDATE models SET is_default = 1 WHERE id = ?", modelID)
+	if err != nil {
+		log.Println("Error setting default model:", err)
+	}
 
 	WriteJSON(w, map[string]string{
 		"message": "Model switched successfully",
@@ -546,16 +661,32 @@ func switchModel(w http.ResponseWriter, r *http.Request) {
 
 func getMetrics(w http.ResponseWriter, r *http.Request) {
 	var chatCount int
-	db.QueryRow("SELECT COUNT(*) FROM chats").Scan(&chatCount)
+	err := db.QueryRow("SELECT COUNT(*) FROM chats").Scan(&chatCount)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	var messageCount int
-	db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&messageCount)
+	err = db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&messageCount)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	var providerCount int
-	db.QueryRow("SELECT COUNT(*) FROM providers").Scan(&providerCount)
+	err = db.QueryRow("SELECT COUNT(*) FROM providers").Scan(&providerCount)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	var modelCount int
-	db.QueryRow("SELECT COUNT(*) FROM models").Scan(&modelCount)
+	err = db.QueryRow("SELECT COUNT(*) FROM models").Scan(&modelCount)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	metrics := Metrics{
 		ChatsTotal:     chatCount,

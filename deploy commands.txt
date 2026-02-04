@@ -1,0 +1,16 @@
+git pull (in the project directory).
+go build .
+sudo systemctl stop myapp.service
+sudo mv ollamagoweb /opt/ollamagoweb-v2/
+sudo chown ollamagoweb:ollamagoweb /opt/ollamagoweb-v2/ollamagoweb
+sudo chmod 755 /opt/ollamagoweb-v2/ollamagoweb
+sudo systemctl start myapp.service
+sudo systemctl status myapp.service
+
+for public sharing
+./zrok share reserved contactwajeeh
+
+________________________
+optimized build command
+________________________
+GOOS=linux GOARCH=arm CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -installsuffix cgo -tags netgo -o ollamagoweb

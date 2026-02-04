@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -87,11 +88,23 @@ func RunMigrations(db *sql.DB) {
 			FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
 		)`,
 
+		// Sessions table for persistent authentication
+		`CREATE TABLE IF NOT EXISTS sessions (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// Indexes
 		`CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_chats_pinned ON chats(is_pinned, updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_unsummarized ON messages(chat_id, is_summarized) WHERE is_summarized = 0`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(chat_id, role)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 	}
 
 	for _, migration := range migrations {
@@ -101,22 +114,33 @@ func RunMigrations(db *sql.DB) {
 		}
 	}
 
-	// Add columns to existing tables if they don't exist (for schema upgrades)
-	alterStatements := []string{
-		`ALTER TABLE messages ADD COLUMN model_name TEXT`,
-		`ALTER TABLE messages ADD COLUMN tokens_used INTEGER`,
-		`ALTER TABLE chats ADD COLUMN system_prompt TEXT`,
-		`ALTER TABLE messages ADD COLUMN version_group TEXT`,
-		`ALTER TABLE chats ADD COLUMN summary TEXT`,
-		`ALTER TABLE messages ADD COLUMN is_summarized INTEGER DEFAULT 0`,
-		`ALTER TABLE chats ADD COLUMN is_pinned INTEGER DEFAULT 0`,
+	// Add columns only if they don't exist (schema upgrades)
+	columnsToAdd := map[string][]struct {
+		Table  string
+		Column string
+		Schema string
+	}{
+		"messages": {
+			{"messages", "model_name", "TEXT"},
+			{"messages", "tokens_used", "INTEGER"},
+			{"messages", "version_group", "TEXT"},
+			{"messages", "is_summarized", "INTEGER DEFAULT 0"},
+		},
+		"chats": {
+			{"chats", "system_prompt", "TEXT"},
+			{"chats", "summary", "TEXT"},
+			{"chats", "is_pinned", "INTEGER DEFAULT 0"},
+		},
 	}
 
-	for _, stmt := range alterStatements {
-		_, err := db.Exec(stmt)
-		// Ignore "duplicate column" errors - this is expected if column exists
-		if err != nil && !contains(err.Error(), "duplicate column") {
-			log.Println("Note:", err)
+	for table, columns := range columnsToAdd {
+		for _, col := range columns {
+			if !columnExists(db, table, col.Column) {
+				_, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, col.Column, col.Schema))
+				if err != nil {
+					log.Printf("Warning: Failed to add column %s.%s: %v\n", table, col.Column, err)
+				}
+			}
 		}
 	}
 
@@ -124,6 +148,31 @@ func RunMigrations(db *sql.DB) {
 	migrateAPIKeys(db)
 
 	log.Println("Database migrations completed")
+}
+
+func columnExists(db *sql.DB, table, column string) bool {
+	query := fmt.Sprintf("PRAGMA table_info(%s)", table)
+	rows, err := db.Query(query)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var type_ string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &type_, &notnull, &dflt, &pk); err != nil {
+			continue
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
 }
 
 // migrateAPIKeys encrypts any existing unencrypted API keys

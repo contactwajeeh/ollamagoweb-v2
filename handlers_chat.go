@@ -205,7 +205,10 @@ func createChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chatID, _ := result.LastInsertId()
+	chatID, err := result.LastInsertId()
+	if err != nil {
+		log.Println("Error getting last insert ID:", err)
+	}
 
 	WriteJSON(w, map[string]interface{}{
 		"id":    chatID,
@@ -248,18 +251,30 @@ func addMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var msgCount int
-	db.QueryRow("SELECT COUNT(*) FROM messages WHERE chat_id = ?", chatID).Scan(&msgCount)
+	err = db.QueryRow("SELECT COUNT(*) FROM messages WHERE chat_id = ?", chatID).Scan(&msgCount)
+	if err != nil {
+		log.Println("Error counting messages:", err)
+	}
 	if msgCount == 1 && req.Role == "user" {
 		title := req.Content
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		db.Exec("UPDATE chats SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", title, chatID)
+		_, err := db.Exec("UPDATE chats SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", title, chatID)
+		if err != nil {
+			log.Println("Error updating chat title:", err)
+		}
 	} else {
-		db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
+		_, err := db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
+		if err != nil {
+			log.Println("Error updating chat timestamp:", err)
+		}
 	}
 
-	messageID, _ := result.LastInsertId()
+	messageID, err := result.LastInsertId()
+	if err != nil {
+		log.Println("Error getting last insert ID:", err)
+	}
 
 	WriteJSON(w, map[string]interface{}{
 		"id": messageID,
@@ -335,7 +350,10 @@ func getCurrentChat(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		chatID, _ = result.LastInsertId()
+		chatID, err = result.LastInsertId()
+		if err != nil {
+			log.Println("Error getting last insert ID:", err)
+		}
 	} else if err != nil {
 		WriteError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -410,13 +428,19 @@ func updateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Println("Error getting rows affected:", err)
+	}
 	if rowsAffected == 0 {
 		WriteError(w, http.StatusNotFound, "Message not found")
 		return
 	}
 
-	db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT chat_id FROM messages WHERE id = ?)", id)
+	_, err = db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT chat_id FROM messages WHERE id = ?)", id)
+	if err != nil {
+		log.Println("Error updating chat timestamp:", err)
+	}
 
 	WriteJSON(w, map[string]interface{}{
 		"message": "Message updated",
@@ -449,7 +473,10 @@ func deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
+	_, err = db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
+	if err != nil {
+		log.Println("Error updating chat timestamp:", err)
+	}
 
 	WriteJSON(w, map[string]interface{}{
 		"message": "Message deleted",

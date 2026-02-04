@@ -124,9 +124,6 @@ func main() {
 	r.Post("/api/auth/logout", logoutHandler)
 	r.Get("/admin", adminHandler)
 
-	// WebSocket endpoint
-	r.Get("/ws", websocketHandler)
-
 	// Protected routes (apply auth middleware)
 	protected := chi.NewRouter()
 	protected.Use(AuthMiddleware)
