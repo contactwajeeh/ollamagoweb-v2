@@ -308,62 +308,135 @@ let selectedMCPTool = null;
 
 async function loadMCPTools() {
   const selector = document.getElementById('mcpToolSelector');
-  if (!selector) return;
+  if (!selector) {
+    console.warn('MCP tool selector element not found');
+    return;
+  }
 
   try {
+    console.log('Fetching MCP tools from /api/mcp/servers/tools');
     const res = await fetch('/api/mcp/servers/tools');
+    console.log('MCP tools response status:', res.status);
     if (!res.ok) {
+      console.warn('MCP tools request failed:', res.status);
       selector.classList.remove('visible');
       return;
     }
 
     const data = await res.json();
+    console.log('MCP tools response data:', data);
     mcpTools = data.tools || [];
+    console.log('Loaded MCP tools:', mcpTools.length, mcpTools);
 
     if (mcpTools.length === 0) {
+      console.log('No MCP tools found');
       selector.classList.remove('visible');
       return;
     }
 
     selector.classList.add('visible');
+    console.log('Made selector visible');
     const select = document.getElementById('mcpToolSelect');
     select.innerHTML = '<option value="">-- Select Tool --</option>' +
       mcpTools.map(tool =>
         `<option value="${escapeHtml(tool.name)}">${escapeHtml(tool.name)}</option>`
       ).join('');
-
-    select.addEventListener('change', onMCPToolSelect);
   } catch (err) {
-    console.log('Error loading MCP tools:', err);
+    console.error('Error loading MCP tools:', err);
     selector.classList.remove('visible');
   }
 }
 
 function onMCPToolSelect(e) {
   const toolName = e.target.value;
-  const paramsContainer = document.getElementById('mcpToolParams');
-  const form = document.getElementById('mcpToolParamsForm');
 
   if (!toolName) {
-    paramsContainer.classList.remove('visible');
     selectedMCPTool = null;
     return;
   }
 
   selectedMCPTool = mcpTools.find(t => t.name === toolName);
   if (!selectedMCPTool) {
-    paramsContainer.classList.remove('visible');
     return;
   }
 
+  showMCPToolModal();
+}
+
+function showMCPToolModal() {
+  const modal = document.getElementById('mcpToolModal');
+  const form = document.getElementById('mcpToolParamsForm');
   renderToolParamsForm(selectedMCPTool, form);
-  paramsContainer.classList.add('visible');
+  modal.classList.add('show');
+  modal.style.display = 'block';
+
+  // Create new backdrop specifically for this modal
+  let backdrop = document.getElementById('mcpToolBackdrop');
+  if (backdrop) {
+    backdrop.remove();
+  }
+  backdrop = document.createElement('div');
+  backdrop.id = 'mcpToolBackdrop';
+  backdrop.className = 'modal-backdrop show';
+  backdrop.style.zIndex = '1049';
+  modal.style.zIndex = '1050';
+  backdrop.onclick = function(e) {
+    // Only close if clicking directly on backdrop, not if event propagated
+    if (e.target === backdrop) {
+      closeMCPToolModal();
+    }
+  };
+  document.body.appendChild(backdrop);
+
+  // Handle Escape key
+  const handleEsc = (e) => {
+    if (e.key === 'Escape') {
+      closeMCPToolModal();
+    }
+  };
+  document.addEventListener('keydown', handleEsc);
+
+  // Store handler on modal to remove later
+  modal._escHandler = handleEsc;
+
+  // Focus first input
+  setTimeout(() => {
+    const firstInput = modal.querySelector('input, textarea, select');
+    if (firstInput) firstInput.focus();
+  }, 100);
+}
+
+function closeMCPToolModal() {
+  const modal = document.getElementById('mcpToolModal');
+  modal.classList.remove('show');
+  modal.style.display = 'none';
+  modal.style.zIndex = '';
+
+  // Remove Escape handler
+  if (modal._escHandler) {
+    document.removeEventListener('keydown', modal._escHandler);
+    delete modal._escHandler;
+  }
+
+  // Remove specific backdrop
+  const backdrop = document.getElementById('mcpToolBackdrop');
+  if (backdrop) {
+    backdrop.remove();
+  }
+
+  // Reset form
+  document.getElementById('mcpToolSelect').value = '';
+  selectedMCPTool = null;
 }
 
 function renderToolParamsForm(tool, container) {
   const schema = tool.input_schema || {};
   const properties = schema.properties || {};
   const required = schema.required || [];
+
+  // Update modal title and description
+  document.getElementById('mcpToolModalTitle').textContent = `🔧 Run Tool: ${escapeHtml(tool.name)}`;
+  document.getElementById('mcpToolDescription').textContent = tool.description || '';
 
   if (Object.keys(properties).length === 0) {
     container.innerHTML = '<p class="text-muted small">No parameters required</p>';
@@ -438,7 +511,6 @@ async function runMCPTool() {
     }
 
     // Find server ID from tool name (format: servername_toolname)
-    const toolParts = selectedMCPTool.name.split('_');
     const serverId = mcpTools.find(t => t.name === selectedMCPTool.name)?.server_id;
 
     const res = await fetch('/api/mcp/servers/call', {
@@ -465,10 +537,8 @@ async function runMCPTool() {
       done: true
     });
 
-    // Hide params after successful run
-    document.getElementById('mcpToolParams').classList.remove('visible');
-    document.getElementById('mcpToolSelect').value = '';
-    selectedMCPTool = null;
+    // Close modal and reset after successful run
+    closeMCPToolModal();
 
   } catch (err) {
     console.error('Error running MCP tool:', err);
@@ -508,6 +578,12 @@ document.addEventListener('DOMContentLoaded', async function () {
   const mcpRunBtn = document.getElementById('mcpToolRunBtn');
   if (mcpRunBtn) {
     mcpRunBtn.addEventListener('click', runMCPTool);
+  }
+
+  // Set up MCP tool select change handler
+  const mcpToolSelect = document.getElementById('mcpToolSelect');
+  if (mcpToolSelect) {
+    mcpToolSelect.addEventListener('change', onMCPToolSelect);
   }
 
   // Load chats list and current chat
