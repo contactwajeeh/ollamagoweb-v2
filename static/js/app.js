@@ -531,22 +531,35 @@ async function runMCPTool() {
     const result = await res.json();
 
     // Display result in chat
-    addMessage({
-      role: 'assistant',
-      content: `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`,
-      done: true
-    });
+    const printout = document.getElementById('printout');
+    const welcome = document.getElementById('welcomeMessage');
+    if (welcome) welcome.style.display = 'none';
+
+    const formattedContent = converter.makeHtml(`**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`);
+    const msgId = Date.now();
+    printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msgId, `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`, true, {}, 0));
 
     // Close modal and reset after successful run
     closeMCPToolModal();
 
+    // Scroll to bottom
+    scrollToBottom();
+
   } catch (err) {
     console.error('Error running MCP tool:', err);
-    addMessage({
-      role: 'assistant',
-      content: `**Error running MCP tool:** ${err.message}`,
-      done: true
-    });
+    const printout = document.getElementById('printout');
+    const welcome = document.getElementById('welcomeMessage');
+    if (welcome) welcome.style.display = 'none';
+
+    const formattedContent = converter.makeHtml(`**Error running MCP tool:** ${err.message}`);
+    const msgId = Date.now();
+    printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msgId, `**Error running MCP tool:** ${err.message}`, true, {}, 0));
+
+    // Close modal and reset after error
+    closeMCPToolModal();
+
+    // Scroll to bottom
+    scrollToBottom();
   } finally {
     runBtn.disabled = false;
     runBtn.textContent = 'Run Tool';
