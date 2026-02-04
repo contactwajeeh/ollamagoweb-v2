@@ -311,7 +311,7 @@ async function loadMCPTools() {
   if (!selector) return;
 
   try {
-    const res = await fetch('/api/mcp/tools');
+    const res = await fetch('/api/mcp/servers/tools');
     if (!res.ok) {
       selector.classList.remove('visible');
       return;
@@ -441,7 +441,7 @@ async function runMCPTool() {
     const toolParts = selectedMCPTool.name.split('_');
     const serverId = mcpTools.find(t => t.name === selectedMCPTool.name)?.server_id;
 
-    const res = await fetch('/api/mcp/call', {
+    const res = await fetch('/api/mcp/servers/call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
