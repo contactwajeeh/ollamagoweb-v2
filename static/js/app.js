@@ -314,9 +314,7 @@ async function loadMCPTools() {
   }
 
   try {
-    console.log('Fetching MCP tools from /api/mcp/servers/tools');
     const res = await fetch('/api/mcp/servers/tools');
-    console.log('MCP tools response status:', res.status);
     if (!res.ok) {
       console.warn('MCP tools request failed:', res.status);
       selector.classList.remove('visible');
@@ -324,9 +322,7 @@ async function loadMCPTools() {
     }
 
     const data = await res.json();
-    console.log('MCP tools response data:', data);
     mcpTools = data.tools || [];
-    console.log('Loaded MCP tools:', mcpTools.length, mcpTools);
 
     if (mcpTools.length === 0) {
       console.log('No MCP tools found');
@@ -335,7 +331,6 @@ async function loadMCPTools() {
     }
 
     selector.classList.add('visible');
-    console.log('Made selector visible');
     const select = document.getElementById('mcpToolSelect');
     select.innerHTML = '<option value="">-- Select Tool --</option>' +
       mcpTools.map(tool =>
