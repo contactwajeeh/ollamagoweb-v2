@@ -394,6 +394,21 @@
       </button>
     </div>
 
+    <!-- MCP Servers Section -->
+    <div class="settings-section">
+      <h3>🔧 MCP Servers</h3>
+      <p class="text-muted small mb-3">Connect MCP servers to enable additional tools for your chats.</p>
+      <div id="mcp-servers-list">
+        <div class="text-center py-3">
+          <div class="loading-spinner"></div>
+          <p class="mt-2 text-muted">Loading MCP servers...</p>
+        </div>
+      </div>
+      <button class="btn btn-primary mt-3" onclick="showAddMCPServerModal()">
+        + Add MCP Server
+      </button>
+    </div>
+
     <!-- Generation Settings Section -->
     <div class="settings-section">
       <h3>⚙️ Generation Settings</h3>
@@ -478,6 +493,65 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" onclick="hideModal('providerModal')">Cancel</button>
           <button type="button" class="btn btn-primary" onclick="saveProvider()">Save Provider</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit MCP Server Modal -->
+  <div class="modal" id="mcpServerModal" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="mcpServerModalTitle">Add MCP Server</h5>
+          <button type="button" class="btn-close" onclick="hideModal('mcpServerModal')" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="mcp-server-id">
+          <div class="mb-3">
+            <label class="form-label">Server Name</label>
+            <input type="text" class="form-control" id="mcp-server-name" placeholder="e.g., GitHub, Brave Search">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Transport Type</label>
+            <select class="form-select" id="mcp-server-type" onchange="toggleMCPFields()">
+              <option value="http">HTTP / SSE</option>
+              <option value="stdio">Stdio (Local)</option>
+            </select>
+          </div>
+          <div id="mcp-http-fields">
+            <div class="mb-3">
+              <label class="form-label">Server URL</label>
+              <input type="url" class="form-control" id="mcp-server-url" placeholder="http://localhost:8080/mcp">
+              <div class="form-text">URL of the MCP server endpoint</div>
+            </div>
+          </div>
+          <div id="mcp-stdio-fields" style="display: none;">
+            <div class="mb-3">
+              <label class="form-label">Command</label>
+              <input type="text" class="form-control" id="mcp-server-command" placeholder="e.g., npx, uvx, python">
+              <div class="form-text">Command to run the MCP server</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Arguments</label>
+              <textarea class="form-control" id="mcp-server-args" rows="2" placeholder='["-y", "@modelcontextprotocol/server-github"]'></textarea>
+              <div class="form-text">JSON array of arguments, or space-separated arguments</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Environment Variables</label>
+              <textarea class="form-control" id="mcp-server-env" rows="2" placeholder='{"GITHUB_TOKEN": "ghp_xxx"}'></textarea>
+              <div class="form-text">JSON object of environment variables</div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">
+              <input type="checkbox" id="mcp-server-enabled" checked> Enabled
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="hideModal('mcpServerModal')">Cancel</button>
+          <button type="button" class="btn btn-primary" onclick="saveMCPServer()">Save Server</button>
         </div>
       </div>
     </div>
