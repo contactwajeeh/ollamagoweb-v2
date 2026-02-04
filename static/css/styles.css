@@ -644,6 +644,7 @@ body {
   justify-content: center;
   gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .input-model-selector .provider-badge {
@@ -748,20 +749,11 @@ body {
   transform: scale(0.95);
 }
 
-/* MCP Tool Selector */
-.input-mcp-selector {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.input-mcp-selector.visible {
-  display: flex;
-}
+/* MCP Tool Selector - now part of input-model-selector */
 
 .mcp-badge {
   font-size: 0.85rem;
+  display: none;
 }
 
 .mcp-dropdown {
@@ -780,6 +772,7 @@ body {
   min-width: 150px;
   max-width: 200px;
   transition: all 0.15s ease;
+  display: none;
 }
 
 .mcp-dropdown:hover {
@@ -1234,12 +1227,8 @@ code {
     display: none;
   }
 
-  .input-mcp-selector {
-    flex-wrap: wrap;
-  }
-
-  .input-mcp-selector .mcp-badge {
-    display: none;
+  .input-model-selector .mcp-badge {
+    display: none !important;
   }
 
   .mcp-dropdown {
