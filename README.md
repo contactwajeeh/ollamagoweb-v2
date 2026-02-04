@@ -214,8 +214,6 @@ npm run test:e2e
 - **Debounced search** - 300ms debounce for chat search
 
 ### Frontend Optimizations
-- **Centralized state management** - `state.js` module
-- **Modular API client** - `api.js` with typed endpoints
 - **Error boundaries** - Graceful error handling with toast notifications
 
 ---
