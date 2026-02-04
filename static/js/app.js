@@ -9,16 +9,24 @@ var converter = new showdown.Converter({
   tasklists: true
 });
 
-const ChatState = {
-  currentChatId: null,
-  chatsList: [],
-  csrfToken: null,
-  messageOffset: 0,
-  hasMoreMessages: true,
-  isLoadingMessages: false,
-  deletedChatBuffer: null,
-  deletedChatTimer: null
-};
+// Note: ChatState is now defined in state.js as a class
+// We need to initialize it with our app-specific defaults
+if (typeof ChatState !== 'undefined') {
+  // ChatState already exists from state.js
+} else {
+  // Fallback for when state.js is not loaded
+  const ChatState = {
+    currentChatId: null,
+    chatsList: [],
+    csrfToken: null,
+    messageOffset: 0,
+    hasMoreMessages: true,
+    isLoadingMessages: false,
+    deletedChatBuffer: null,
+    deletedChatTimer: null
+  };
+  window.ChatState = ChatState;
+}
 
 // ============================================
 // Error Boundary & Global Error Handling
@@ -1585,6 +1593,7 @@ function showExportMenu(event) {
   event?.stopPropagation?.();
   const menu = document.getElementById('exportMenu');
   if (menu) {
+    menu.style.display = '';
     menu.classList.add('show');
   }
 }
@@ -1593,6 +1602,7 @@ function closeExportMenu() {
   const menu = document.getElementById('exportMenu');
   if (menu) {
     menu.classList.remove('show');
+    menu.style.display = 'none';
   }
 }
 
