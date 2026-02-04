@@ -528,7 +528,14 @@ async function runMCPTool() {
     const textarea = document.getElementById('prompt');
     if (textarea) {
       const currentContent = textarea.value.trim();
-      const toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`;
+      let toolResult;
+
+      if (result.results && Array.isArray(result.results)) {
+        toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${JSON.stringify(result.results, null, 2)}`;
+      } else {
+        toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`;
+      }
+
       textarea.value = currentContent ? `${currentContent}\n\n${toolResult}` : toolResult;
       textarea.focus();
     }
