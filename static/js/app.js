@@ -613,8 +613,9 @@ function renderChatsList(filter = '') {
 }
 
 function createChatItemHtml(chat) {
+  const isActive = String(chat.id) === String(ChatState.currentChatId);
   return `
-    <div class="chat-item ${chat.id === ChatState.currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}"
+    <div class="chat-item ${isActive ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}"
          data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
       <div class="chat-item-content">
         <div class="chat-item-title">
@@ -633,7 +634,7 @@ function createChatItemHtml(chat) {
 function updateChatItemListeners() {
   document.querySelectorAll('.chat-item').forEach(item => {
     item.addEventListener('click', () => {
-      selectedChatIdForAction = parseInt(item.dataset.chatId);
+      selectedChatIdForAction = item.dataset.chatId;
     });
   });
 }
@@ -670,7 +671,7 @@ function renderSearchResults(results, query) {
   }
 
   container.innerHTML = results.map(chat => `
-    <div class="chat-item ${chat.id === ChatState.currentChatId ? 'active' : ''}"
+    <div class="chat-item ${String(chat.id) === String(ChatState.currentChatId) ? 'active' : ''}"
          data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
       <div class="chat-item-content">
         <div class="chat-item-title">${escapeHtml(chat.title)}</div>
@@ -800,7 +801,7 @@ async function selectChat(chatId) {
     ChatState.currentChatId = chat.id;
 
     document.querySelectorAll('.chat-item').forEach(item => {
-      item.classList.toggle('active', parseInt(item.dataset.chatId) === chatId);
+      item.classList.toggle('active', String(item.dataset.chatId) === String(chatId));
     });
 
     renderMessages(chat);
