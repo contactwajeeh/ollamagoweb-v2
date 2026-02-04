@@ -98,15 +98,11 @@
             <option>Loading...</option>
           </select>
         </div>
-        <div class="input-mcp-selector" id="mcpToolSelector" style="display: none;">
+        <div class="input-mcp-selector" id="mcpToolSelector">
           <span class="mcp-badge" title="MCP Tools" aria-hidden="true">🔧</span>
           <select id="mcpToolSelect" class="mcp-dropdown" title="Select MCP tool" aria-label="Select MCP tool">
             <option value="">-- Select Tool --</option>
           </select>
-        </div>
-        <div id="mcpToolParams" class="mcp-params-container" style="display: none;">
-          <div id="mcpToolParamsForm" class="mcp-params-form"></div>
-          <button type="button" id="mcpToolRunBtn" class="mcp-run-btn">Run Tool</button>
         </div>
         <form id="chatForm" class="input-form" aria-label="Chat message form">
           <div class="input-wrapper">
@@ -171,7 +167,39 @@
     </div>
   </div>
 
-  <script src="/static/js/app.js"></script>
+  <!-- MCP Tool Modal -->
+  <div id="mcpToolModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="mcpToolModalTitle">🔧 Run MCP Tool</h3>
+        <button class="modal-close" onclick="closeMCPToolModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <p id="mcpToolDescription" class="modal-hint"></p>
+        <div id="mcpToolParamsForm" class="mcp-params-form"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn secondary" onclick="closeMCPToolModal()">Cancel</button>
+        <button type="button" id="mcpToolRunBtn" class="modal-btn primary">Run Tool</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1049;
+    }
+    .modal-backdrop.show {
+      opacity: 1;
+    }
+  </style>
+  <script src="/static/js/app.js?v=8"></script>
 </body>
 
 </html>
