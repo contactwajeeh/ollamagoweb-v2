@@ -583,9 +583,11 @@ async function loadChatsList() {
 
 function renderChatsList(filter = '') {
   const container = document.getElementById('chatList');
+  const pinnedContainer = document.getElementById('pinnedChatList');
 
   if (!ChatState.chatsList || ChatState.chatsList.length === 0) {
     container.innerHTML = '<div class="chat-list-loading">No chats yet</div>';
+    pinnedContainer.innerHTML = '';
     return;
   }
 
@@ -595,10 +597,23 @@ function renderChatsList(filter = '') {
 
   if (filteredChats.length === 0) {
     container.innerHTML = '<div class="chat-list-loading">No matching chats</div>';
+    pinnedContainer.innerHTML = '';
     return;
   }
 
-  container.innerHTML = filteredChats.map(chat => `
+  const pinnedChats = filteredChats.filter(chat => chat.is_pinned);
+  const regularChats = filteredChats.filter(chat => !chat.is_pinned);
+
+  pinnedContainer.innerHTML = pinnedChats.map(chat => createChatItemHtml(chat)).join('');
+  container.innerHTML = regularChats.length > 0
+    ? regularChats.map(chat => createChatItemHtml(chat)).join('')
+    : '<div class="chat-list-loading">No chats yet</div>';
+
+  updateChatItemListeners();
+}
+
+function createChatItemHtml(chat) {
+  return `
     <div class="chat-item ${chat.id === ChatState.currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}"
          data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
       <div class="chat-item-content">
@@ -612,8 +627,10 @@ function renderChatsList(filter = '') {
         <button class="chat-item-delete" onclick="deleteChat(${chat.id}, event)" title="Delete chat">×</button>
       </div>
     </div>
-  `).join('');
+  `;
+}
 
+function updateChatItemListeners() {
   document.querySelectorAll('.chat-item').forEach(item => {
     item.addEventListener('click', () => {
       selectedChatIdForAction = parseInt(item.dataset.chatId);
@@ -643,6 +660,9 @@ function filterChats(query) {
 
 function renderSearchResults(results, query) {
   const container = document.getElementById('chatList');
+  const pinnedContainer = document.getElementById('pinnedChatList');
+
+  pinnedContainer.innerHTML = '';
 
   if (results.length === 0) {
     container.innerHTML = '<div class="chat-list-loading">No matching chats</div>';
@@ -662,6 +682,8 @@ function renderSearchResults(results, query) {
       </div>
     </div>
   `).join('');
+
+  updateChatItemListeners();
 }
 
 function formatDate(dateStr) {
