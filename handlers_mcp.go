@@ -32,6 +32,7 @@ func (h *MCPServerHandler) initRoutes() {
 	h.Delete("/{id}", h.deleteServer)
 	h.Get("/{id}/tools", h.getServerTools)
 	h.Get("/tools", h.getAllTools)
+	h.Post("/call", h.callTool)
 }
 
 func (h *MCPServerHandler) listServers(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +236,65 @@ func (h *MCPServerHandler) getAllTools(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"tools": tools,
 		"count": len(tools),
+	})
+}
+
+type CallToolRequest struct {
+	ServerID  int64                  `json:"server_id"`
+	ToolName  string                 `json:"tool_name"`
+	Arguments map[string]interface{} `json:"arguments"`
+}
+
+func (h *MCPServerHandler) callTool(w http.ResponseWriter, r *http.Request) {
+	var req CallToolRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ServerID == 0 {
+		http.Error(w, "Server ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.ToolName == "" {
+		http.Error(w, "Tool name is required", http.StatusBadRequest)
+		return
+	}
+
+	var server mcp.MCPServer
+	err := h.db.QueryRow(`
+		SELECT id, name, server_type, endpoint_url, command, args, env_vars, is_enabled
+		FROM mcp_servers WHERE id = ?
+	`, req.ServerID).Scan(&server.ID, &server.Name, &server.ServerType, &server.EndpointURL, &server.Command, &server.Args, &server.EnvVars, &server.IsEnabled)
+	if err == sql.ErrNoRows {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Println("Error fetching server:", err)
+		http.Error(w, "Failed to fetch server", http.StatusInternalServerError)
+		return
+	}
+
+	if !server.IsEnabled {
+		http.Error(w, "Server is disabled", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	result, err := mcp.GetMCPClient().CallTool(ctx, server.ID, req.ToolName, req.Arguments)
+	if err != nil {
+		log.Println("Error calling tool:", err)
+		http.Error(w, "Failed to call tool: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"result": string(result),
+		"tool":   req.ToolName,
+		"server": server.Name,
 	})
 }
 
