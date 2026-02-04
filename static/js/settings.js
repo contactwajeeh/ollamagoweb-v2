@@ -191,8 +191,7 @@ function showAddProviderModal() {
     toggleProviderFields();
     renderSelectedModels();
 
-    const modal = new bootstrap.Modal(document.getElementById('providerModal'));
-    modal.show();
+    showModal('providerModal');
 }
 
 function editProvider(id) {
@@ -215,8 +214,38 @@ function editProvider(id) {
     toggleProviderFields();
     renderSelectedModels();
 
-    const modal = new bootstrap.Modal(document.getElementById('providerModal'));
-    modal.show();
+    showModal('providerModal');
+}
+
+function showModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.add('show');
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+
+    // Add backdrop if not exists
+    let backdrop = document.querySelector('.modal-backdrop');
+    if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.className = 'modal-backdrop show';
+        backdrop.onclick = function() {
+            hideModal(modalId);
+        };
+        document.body.appendChild(backdrop);
+    }
+}
+
+function hideModal(modalId) {
+    const modal = document.getElementById(modalId);
+    modal.classList.remove('show');
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+
+    // Remove backdrop
+    const backdrop = document.querySelector('.modal-backdrop');
+    if (backdrop) {
+        backdrop.remove();
+    }
 }
 
 function toggleProviderFields() {
@@ -458,7 +487,7 @@ async function saveProvider() {
             throw new Error(error);
         }
 
-        bootstrap.Modal.getInstance(document.getElementById('providerModal')).hide();
+        hideModal('providerModal');
         await loadProviders();
     } catch (err) {
         alert('Error saving provider: ' + err.message);
