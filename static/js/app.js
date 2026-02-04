@@ -787,6 +787,7 @@ function renderMessages(chat, options = {}) {
 
   if (options.setupCopyButtons !== false) {
     setupCodeBlockCopyButtons();
+    wrapTablesInMessage(printout);
   }
 }
 
@@ -2361,4 +2362,15 @@ function closeSystemPromptModal() {
   if (modal) {
     modal.style.display = 'none';
   }
+}
+
+function wrapTablesInMessage(container) {
+  if (!container) return;
+  container.querySelectorAll('table').forEach(table => {
+    if (table.parentElement.classList.contains('table-wrapper')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-wrapper';
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
 }
