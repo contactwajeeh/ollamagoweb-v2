@@ -9,6 +9,7 @@ let fetchedModels = []; // Store fetched models for filtering
 document.addEventListener('DOMContentLoaded', function () {
     initTheme();
     loadProviders();
+    loadMCPServers();
     loadSettings();
 
     // Temperature slider
@@ -519,6 +520,164 @@ async function activateProvider(id) {
         await loadProviders();
     } catch (err) {
         alert('Error activating provider: ' + err.message);
+    }
+}
+
+// MCP Server Management
+let mcpServers = [];
+
+async function loadMCPServers() {
+    try {
+        const res = await fetch('/api/mcp/servers');
+        mcpServers = await res.json();
+        renderMCPServers();
+    } catch (err) {
+        console.error('Error loading MCP servers:', err);
+        document.getElementById('mcp-servers-list').innerHTML =
+            '<p class="text-danger">Error loading MCP servers</p>';
+    }
+}
+
+function renderMCPServers() {
+    const container = document.getElementById('mcp-servers-list');
+
+    if (!mcpServers || mcpServers.length === 0) {
+        container.innerHTML = '<p class="text-muted">No MCP servers configured. Add one to enable additional tools!</p>';
+        return;
+    }
+
+    container.innerHTML = mcpServers.map(s => `
+        <div class="provider-card ${s.is_enabled ? '' : 'disabled'}" data-id="${s.id}">
+            <div class="provider-header">
+                <div class="provider-name">
+                    ${escapeHtml(s.name)}
+                    <span class="provider-badge">${s.server_type.toUpperCase()}</span>
+                    ${s.is_enabled ? '<span class="badge bg-success ms-2">Active</span>' : '<span class="badge bg-secondary ms-2">Disabled</span>'}
+                </div>
+                <div class="provider-actions">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editMCPServer(${s.id})">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteMCPServer(${s.id})">×</button>
+                </div>
+            </div>
+            <div class="provider-models">
+                ${s.server_type === 'http' ? s.endpoint_url : s.command + ' ' + (s.args || '')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleMCPFields() {
+    const type = document.getElementById('mcp-server-type').value;
+    document.getElementById('mcp-http-fields').style.display = type === 'http' ? 'block' : 'none';
+    document.getElementById('mcp-stdio-fields').style.display = type === 'stdio' ? 'block' : 'none';
+}
+
+function showAddMCPServerModal() {
+    document.getElementById('mcp-server-id').value = '';
+    document.getElementById('mcp-server-name').value = '';
+    document.getElementById('mcp-server-type').value = 'http';
+    document.getElementById('mcp-server-url').value = '';
+    document.getElementById('mcp-server-command').value = '';
+    document.getElementById('mcp-server-args').value = '';
+    document.getElementById('mcp-server-env').value = '';
+    document.getElementById('mcp-server-enabled').checked = true;
+    document.getElementById('mcpServerModalTitle').textContent = 'Add MCP Server';
+    toggleMCPFields();
+    showModal('mcpServerModal');
+}
+
+function editMCPServer(id) {
+    const server = mcpServers.find(s => s.id === id);
+    if (!server) return;
+
+    document.getElementById('mcp-server-id').value = id;
+    document.getElementById('mcp-server-name').value = server.name;
+    document.getElementById('mcp-server-type').value = server.server_type;
+    document.getElementById('mcp-server-url').value = server.endpoint_url || '';
+    document.getElementById('mcp-server-command').value = server.command || '';
+    document.getElementById('mcp-server-args').value = server.args || '';
+    document.getElementById('mcp-server-env').value = server.env_vars || '';
+    document.getElementById('mcp-server-enabled').checked = server.is_enabled;
+    document.getElementById('mcpServerModalTitle').textContent = 'Edit MCP Server';
+    toggleMCPFields();
+    showModal('mcpServerModal');
+}
+
+async function saveMCPServer() {
+    const id = document.getElementById('mcp-server-id').value;
+    const name = document.getElementById('mcp-server-name').value.trim();
+    const serverType = document.getElementById('mcp-server-type').value;
+    const endpointUrl = document.getElementById('mcp-server-url').value.trim();
+    const command = document.getElementById('mcp-server-command').value.trim();
+    const args = document.getElementById('mcp-server-args').value.trim();
+    const envVars = document.getElementById('mcp-server-env').value.trim();
+    const isEnabled = document.getElementById('mcp-server-enabled').checked;
+
+    if (!name) {
+        alert('Please enter a server name');
+        return;
+    }
+
+    if (serverType === 'http' && !endpointUrl) {
+        alert('Please enter a server URL');
+        return;
+    }
+
+    if (serverType === 'stdio' && !command) {
+        alert('Please enter a command');
+        return;
+    }
+
+    const data = {
+        name,
+        server_type: serverType,
+        endpoint_url: serverType === 'http' ? endpointUrl : '',
+        command: serverType === 'stdio' ? command : '',
+        args: serverType === 'stdio' ? args : '',
+        env_vars: serverType === 'stdio' ? envVars : '',
+        is_enabled: isEnabled
+    };
+
+    try {
+        let res;
+        if (id) {
+            res = await fetch(`/api/mcp/servers/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        } else {
+            res = await fetch('/api/mcp/servers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        }
+
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+
+        hideModal('mcpServerModal');
+        await loadMCPServers();
+    } catch (err) {
+        alert('Error saving MCP server: ' + err.message);
+    }
+}
+
+async function deleteMCPServer(id) {
+    if (!confirm('Are you sure you want to delete this MCP server?')) return;
+
+    try {
+        const res = await fetch(`/api/mcp/servers/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+            const error = await res.text();
+            throw new Error(error);
+        }
+        await loadMCPServers();
+    } catch (err) {
+        alert('Error deleting MCP server: ' + err.message);
     }
 }
 
