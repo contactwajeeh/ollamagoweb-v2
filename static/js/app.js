@@ -325,7 +325,6 @@ async function loadMCPTools() {
     mcpTools = data.tools || [];
 
     if (mcpTools.length === 0) {
-      console.log('No MCP tools found');
       selector.classList.remove('visible');
       return;
     }
