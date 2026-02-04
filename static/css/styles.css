@@ -129,6 +129,14 @@ body {
   background: var(--accent-hover);
 }
 
+.pinned-chats {
+  padding: 8px 12px 4px;
+}
+
+.pinned-chats:empty {
+  display: none;
+}
+
 .sidebar-search {
   padding: 8px 12px;
 }
