@@ -357,7 +357,6 @@ ollamagoweb/
 │   └── playwright.config.js
 │
 ├── .env.example         # Environment template
-├── .gitignore
 ├── package.json        # E2E test scripts
 ├── README.md
 └── go.mod
@@ -382,67 +381,9 @@ ollamagoweb/
 | **Rate limiting** | Abuse prevention |
 | **CSRF protection** | Request validation |
 | **Authentication** | Optional session-based auth |
-
 | **Unit tests** | Core tests passing |
 | **E2E tests** | Playwright integration tests |
 
----
-
-## 🐛 Bug Fixes
-
-### SVG Icons Not Appearing
-Fixed icon display issue where deleted/regenerated SVG icons wouldn't appear until page refresh by separating the visibility condition in `createAssistantMessageHtml` function (`app.js`).
-
----
-
-## 📝 Changelog
-
-### Recent Improvements
-
-1. **Authentication System**
-   - Session-based authentication with secure cookies
-   - Bcrypt password hashing
-   - `/api/auth/*` endpoints
-   - `/admin` login page
-   - Protected routes middleware
-   - Optional auth (enable via `AUTH_USER`/`AUTH_PASSWORD`)
-
-
-
-3. **Security Hardening**
-   - Added `ENCRYPTION_KEY` enforcement
-   - Implemented rate limiting middleware
-   - Added CSRF token generation
-   - SQL injection prevention via input sanitization
-   - CSP header configuration
-
-4. **Performance**
-   - Database connection pooling (25 max connections)
-   - Message pagination (50 at a time)
-   - Lazy loading for large chats
-   - Debounced search (300ms)
-
-5. **User Experience**
-   - Accessibility improvements (ARIA, focus states)
-   - Copy-to-clipboard for code blocks
-   - Export to HTML and JSON
-   - Keyboard shortcuts
-   - Undo deletion with toast notification
-   - Loading skeleton animations
-
-6. **Testing**
-   - Unit tests for handlers and middleware
-   - Playwright E2E test setup
-   - Test scripts in package.json
-
-7. **API**
-   - New `/api/csrf` endpoint
-   - New `/api/metrics` endpoint
-   - Consistent JSON response helpers
-   - New `/api/auth/*` endpoints
-
-
----
 
 ## 🤝 Contributing
 
@@ -456,4 +397,4 @@ Fixed icon display issue where deleted/regenerated SVG icons wouldn't appear unt
 
 ## 📄 License
 
-MIT License - See LICENSE file for details
+Apache 2.0 License - See LICENSE file for details
