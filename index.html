@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>OllamaGoWeb</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A simple LLM chat client built with Go and Ollama" />
+  <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/static/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="/static/css/default.min.css" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script src="/static/js/jquery.min.js"></script>
+  <script src="/static/js/highlight.min.js"></script>
+  <script src="/static/js/showdown.min.js"></script>
+  <script src="/static/js/autosize.min.js"></script>
+</head>
+
+<body>
+  <a href="#chatMessages" class="skip-link">Skip to main content</a>
+
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">💬 Chats</h2>
+        <button id="btnNewChat" class="new-chat-btn" title="New chat" aria-label="Create new chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          New
+        </button>
+      </div>
+      <div class="pinned-chats" id="pinnedChatList"></div>
+      <div class="sidebar-search">
+        <input type="text" id="chatSearch" class="chat-search-input" placeholder="Search chats..." aria-label="Search chats" />
+      </div>
+      <div class="chat-list" id="chatList">
+        <div class="chat-list-loading">Loading chats...</div>
+      </div>
+      <div class="sidebar-footer">
+        <a href="/settings" class="sidebar-link">⚙️ Settings</a>
+      </div>
+    </aside>
+
+    <!-- Toggle sidebar button (mobile) -->
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar" aria-label="Toggle sidebar" aria-expanded="false">
+      ☰
+    </button>
+
+    <!-- Main Content -->
+    <div class="main-content" role="main">
+      <!-- Announcements for screen readers -->
+      <div id="a11y-announcements" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+
+      <!-- Header -->
+      <header class="app-header" role="banner">
+        <div class="header-left">
+          <h1 class="app-title">🦙 OllamaGoWeb</h1>
+        </div>
+        <div class="header-right">
+          <div class="progress-container" id="progress-container" role="status" aria-live="polite"></div>
+          <button id="btnSystemPrompt" class="header-btn" onclick="openSystemPromptModal()" title="System prompt" aria-label="Configure system prompt">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a7 7 0 0 1 7 7h-7V2z"/></svg>
+          </button>
+          <button id="btnShortcuts" class="header-btn" onclick="showKeyboardShortcutsHelp()" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M18 16h.01M6 16h.01"/><path d="M10 16h4"/></svg>
+          </button>
+          <button id="btnSave" class="header-btn" title="Export chat" onclick="showExportMenu(event)" aria-label="Export chat">💾</button>
+          <button id="theme-toggle" class="header-btn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
+          <a href="https://github.com/ml2068/ollamagoweb" target="_blank" class="header-btn" title="GitHub">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+            </svg>
+          </a>
+        </div>
+      </header>
+
+      <!-- Chat Messages -->
+      <main class="chat-messages" id="chatMessages">
+        <div id="printout" class="messages-container">
+          <!-- Welcome message -->
+          <div class="welcome-message" id="welcomeMessage">
+            <div class="welcome-icon">🦙</div>
+            <h2>Welcome to OllamaGoWeb</h2>
+            <p>Start a conversation by typing a message below.</p>
+            <p class="welcome-hint">Press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</p>
+          </div>
+        </div>
+      </main>
+
+      <!-- Input Area -->
+      <footer class="chat-input-area" role="contentinfo" aria-label="Message input">
+        <div class="input-model-selector">
+          <span id="providerName" class="provider-badge" title="Active provider" aria-hidden="true"></span>
+          <select id="modelSelect" class="model-dropdown" title="Select model" aria-label="Select model">
+            <option>Loading...</option>
+          </select>
+        </div>
+        <form id="chatForm" class="input-form" aria-label="Chat message form">
+          <div class="input-wrapper">
+            <textarea id="prompt" class="chat-input" placeholder="Type your message..." rows="1" autofocus aria-label="Type your message"></textarea>
+            <button type="submit" id="sendBtn" class="send-btn" title="Send message" aria-label="Send message">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          </div>
+        </form>
+      </footer>
+      <!-- Floating New Chat Button (Mobile) -->
+      <button id="btnFloatingNewChat" class="floating-new-chat-btn" title="New Chat" aria-label="Create new chat">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- System Prompt Modal -->
+  <div id="systemPromptModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📝 System Prompt</h3>
+        <button class="modal-close" onclick="closeSystemPromptModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint">Configure how the AI should behave for this chat. This will be sent at the beginning of
+          each request.</p>
+        <textarea id="systemPromptInput" class="system-prompt-textarea"
+          placeholder="e.g., You are a helpful coding assistant. Always provide code examples and explanations."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn secondary" onclick="closeSystemPromptModal()">Cancel</button>
+        <button class="modal-btn primary" onclick="saveSystemPrompt()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Menu -->
+  <div id="exportMenu" class="modal">
+    <div class="modal-content" style="max-width: 320px;">
+      <div class="modal-header">
+        <h3>Export Chat</h3>
+        <button class="modal-close" onclick="closeExportMenu()">×</button>
+      </div>
+      <div class="modal-body">
+        <button class="export-option" onclick="exportChat('html'); closeExportMenu();">
+          <span class="export-icon">📄</span>
+          <span>HTML (Web Page)</span>
+          <small>Best for viewing in browser</small>
+        </button>
+        <button class="export-option" onclick="exportChat('json'); closeExportMenu();">
+          <span class="export-icon">📋</span>
+          <span>JSON</span>
+          <small>Best for importing elsewhere</small>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+
+</html>
