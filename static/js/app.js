@@ -1585,16 +1585,14 @@ function showExportMenu(event) {
   event?.stopPropagation?.();
   const menu = document.getElementById('exportMenu');
   if (menu) {
-    menu.style.display = 'flex';
-    menu.style.alignItems = 'center';
-    menu.style.justifyContent = 'center';
+    menu.classList.add('show');
   }
 }
 
 function closeExportMenu() {
   const menu = document.getElementById('exportMenu');
   if (menu) {
-    menu.style.display = 'none';
+    menu.classList.remove('show');
   }
 }
 
@@ -1602,7 +1600,7 @@ function closeExportMenu() {
 document.addEventListener('click', (e) => {
   const menu = document.getElementById('exportMenu');
   const menuContent = menu?.querySelector('.modal-content');
-  if (menu && menu.style.display !== 'none' && !menuContent.contains(e.target)) {
+  if (menu && menu.classList.contains('show') && !menuContent.contains(e.target)) {
     closeExportMenu();
   }
 });
