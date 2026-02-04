@@ -85,7 +85,7 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 - **Default model selection** - Set a preferred model for each provider
 
 ### Security
-- **Encrypted API keys** - All API keys encrypted with AES-256-GCM
+- **Encrypted API keys** - All API keys encrypted with BCrypt
 - **Encryption enforcement** - Application fails if `ENCRYPTION_KEY` not set
 - **Secure key migration** - Existing keys are automatically encrypted
 
@@ -96,7 +96,7 @@ A comprehensive LLM chat client built with Go, featuring a modern web interface 
 ### Session-Based Authentication
 - **Optional authentication** - Enable via environment variables
 - **Secure session cookies** - HttpOnly, Secure, SameSite
-- **SHA-256 password hashing** - Secure credential storage
+- **BCrypt password hashing** - Secure credential storage
 - **Session expiration** - 24-hour session TTL with auto-cleanup
 
 ### Endpoints
@@ -146,7 +146,7 @@ Without `AUTH_USER` and `AUTH_PASSWORD`, the application runs in public mode (no
 ## 🔒 Security Features
 
 ### Encryption
-API keys and sensitive configuration are encrypted using AES-256-GCM.
+API keys and sensitive configuration are encrypted using Bcrypt.
 
 **Required for production:**
 ```bash
@@ -336,7 +336,7 @@ ollamagoweb/
 ├── middleware.go        # Rate limiting, CSRF
 ├── utils.go             # Helper functions
 ├── database.go          # Database, migrations, pooling
-├── crypto.go            # Encryption (AES-256-GCM)
+├── crypto.go            # Encryption (Bcrypt)
 ├── auth.go              # Authentication system
 
 ├── provider.go          # Provider implementations
@@ -374,7 +374,7 @@ ollamagoweb/
 | **Brave Search** | `/search <query>` for real-time results |
 | **Auto-save** | Conversations saved automatically |
 | **Message editing** | Edit and track message history |
-| **Encrypted secrets** | AES-256-GCM encryption |
+| **Encrypted secrets** | Bcrypt encryption |
 | **Responsive UI** | Desktop and mobile support |
 | **Theme support** | Light and dark modes |
 | **Rolling Summary** | Token-efficient long conversations |
@@ -402,7 +402,7 @@ Fixed icon display issue where deleted/regenerated SVG icons wouldn't appear unt
 
 1. **Authentication System**
    - Session-based authentication with secure cookies
-   - SHA-256 password hashing
+   - Bcrypt password hashing
    - `/api/auth/*` endpoints
    - `/admin` login page
    - Protected routes middleware
