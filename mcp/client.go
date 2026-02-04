@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ type MCPTool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"input_schema"`
+	ServerID    int64                  `json:"server_id,omitempty"`
 }
 
 type MCPClient struct {
@@ -38,6 +40,7 @@ type mcpSession struct {
 	endpoint  string
 	serverID  int64
 	lastError error
+	sessionID string
 }
 
 var mcpClient *MCPClient
@@ -103,6 +106,7 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 
 	resp, err := session.client.Do(req)
 	if err != nil {
@@ -110,11 +114,20 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 	}
 	defer resp.Body.Close()
 
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		return c.parseSSETools(resp)
+	}
+
 	var response map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	return c.parseJSONTools(response)
+}
+
+func (c *MCPClient) parseJSONTools(response map[string]interface{}) ([]MCPTool, error) {
 	if errorResp, ok := response["error"].(map[string]interface{}); ok {
 		return nil, fmt.Errorf("MCP error: %v", errorResp)
 	}
@@ -129,6 +142,34 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 		return nil, fmt.Errorf("no tools in response")
 	}
 
+	return c.extractTools(toolsArr)
+}
+
+func (c *MCPClient) parseSSETools(resp *http.Response) ([]MCPTool, error) {
+	scanner := bufio.NewScanner(resp.Body)
+	var jsonData string
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "data: ") {
+			jsonData = line[6:]
+			break
+		}
+	}
+
+	if jsonData == "" {
+		return nil, fmt.Errorf("no data in SSE response")
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
+		return nil, fmt.Errorf("failed to parse SSE data: %w", err)
+	}
+
+	return c.parseJSONTools(response)
+}
+
+func (c *MCPClient) extractTools(toolsArr []interface{}) ([]MCPTool, error) {
 	tools := make([]MCPTool, 0, len(toolsArr))
 	for _, t := range toolsArr {
 		toolMap, ok := t.(map[string]interface{})
@@ -168,6 +209,7 @@ func (c *MCPClient) GetAllEnabledTools(ctx context.Context, servers []*MCPServer
 
 		for i := range tools {
 			tools[i].Name = fmt.Sprintf("%s_%s", sanitizeName(server.Name), tools[i].Name)
+			tools[i].ServerID = server.ID
 		}
 
 		allTools = append(allTools, tools...)
@@ -205,6 +247,7 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 
 	resp, err := session.client.Do(req)
 	if err != nil {
@@ -212,11 +255,20 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 	}
 	defer resp.Body.Close()
 
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		return c.parseSSEContent(resp)
+	}
+
 	var response map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
+	return c.parseJSONContent(response)
+}
+
+func (c *MCPClient) parseJSONContent(response map[string]interface{}) ([]byte, error) {
 	if errorResp, ok := response["error"].(map[string]interface{}); ok {
 		return nil, fmt.Errorf("MCP error: %v", errorResp)
 	}
@@ -243,6 +295,30 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 	}
 
 	return []byte(responseBuilder.String()), nil
+}
+
+func (c *MCPClient) parseSSEContent(resp *http.Response) ([]byte, error) {
+	scanner := bufio.NewScanner(resp.Body)
+	var jsonData string
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "data: ") {
+			jsonData = line[6:]
+			break
+		}
+	}
+
+	if jsonData == "" {
+		return nil, fmt.Errorf("no data in SSE response")
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
+		return nil, fmt.Errorf("failed to parse SSE data: %w", err)
+	}
+
+	return c.parseJSONContent(response)
 }
 
 func (c *MCPClient) DisconnectServer(serverID int64) {
