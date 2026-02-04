@@ -96,6 +96,20 @@ func RunMigrations(db *sql.DB) {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
+		// MCP Servers table
+		`CREATE TABLE IF NOT EXISTS mcp_servers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			server_type TEXT NOT NULL CHECK(server_type IN ('http', 'stdio')),
+			endpoint_url TEXT,
+			command TEXT,
+			args TEXT,
+			env_vars TEXT,
+			is_enabled INTEGER DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// Indexes
 		`CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active)`,
@@ -105,6 +119,7 @@ func RunMigrations(db *sql.DB) {
 		`CREATE INDEX IF NOT EXISTS idx_messages_unsummarized ON messages(chat_id, is_summarized) WHERE is_summarized = 0`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(chat_id, role)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers(is_enabled)`,
 	}
 
 	for _, migration := range migrations {

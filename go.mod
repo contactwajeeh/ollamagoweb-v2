@@ -1,4 +1,4 @@
-module github.com/ml2068/ollamagoweb
+module github.com/contactwajeeh/ollamagoweb-v2
 
 go 1.24.0
 

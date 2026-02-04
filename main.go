@@ -14,6 +14,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/contactwajeeh/ollamagoweb-v2/mcp"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/joho/godotenv"
@@ -44,6 +45,9 @@ func main() {
 	authPass := os.Getenv("AUTH_PASSWORD")
 	InitAuth(authUser, authPass)
 	go CleanupSessions()
+
+	// Initialize MCP client
+	mcp.InitMCPClient()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -93,6 +97,9 @@ func main() {
 	// Settings API routes
 	r.Get("/api/settings/{key}", getSetting)
 	r.Put("/api/settings/{key}", updateSetting)
+
+	// MCP Server API routes
+	r.Mount("/api/mcp/servers", NewMCPServerHandler(db))
 
 	// Active provider info
 	r.Get("/api/active-provider", getActiveProviderInfo)
