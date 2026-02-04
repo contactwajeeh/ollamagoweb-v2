@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -36,11 +37,9 @@ type MCPClient struct {
 }
 
 type mcpSession struct {
-	client    *http.Client
-	endpoint  string
-	serverID  int64
-	lastError error
-	sessionID string
+	client   *http.Client
+	endpoint string
+	serverID int64
 }
 
 var mcpClient *MCPClient
@@ -64,13 +63,9 @@ func (c *MCPClient) ConnectServer(ctx context.Context, server *MCPServer) error 
 		return nil
 	}
 
-	if server.ServerType != "http" {
-		return fmt.Errorf("only HTTP transport is supported in this implementation")
-	}
-
 	c.sessions[server.ID] = &mcpSession{
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 15 * time.Second,
 		},
 		endpoint: server.EndpointURL,
 		serverID: server.ID,
@@ -96,12 +91,9 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 		"params":  map[string]interface{}{},
 	}
 
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
+	body, _ := json.Marshal(reqBody)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", session.endpoint, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, "POST", session.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -114,20 +106,16 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 	}
 	defer resp.Body.Close()
 
-	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "text/event-stream") {
-		return c.parseSSETools(resp)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	var response map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w, body: %s", err, string(respBody[:min(200, len(respBody))]))
 	}
 
-	return c.parseJSONTools(response)
-}
-
-func (c *MCPClient) parseJSONTools(response map[string]interface{}) ([]MCPTool, error) {
 	if errorResp, ok := response["error"].(map[string]interface{}); ok {
 		return nil, fmt.Errorf("MCP error: %v", errorResp)
 	}
@@ -142,70 +130,6 @@ func (c *MCPClient) parseJSONTools(response map[string]interface{}) ([]MCPTool, 
 		return nil, fmt.Errorf("no tools in response")
 	}
 
-	return c.extractTools(toolsArr)
-}
-
-func (c *MCPClient) parseSSETools(resp *http.Response) ([]MCPTool, error) {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	bodyStr := string(body)
-	lines := strings.Split(bodyStr, "\n")
-	var jsonData string
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "data: ") {
-			jsonData = strings.TrimPrefix(line, "data: ")
-			break
-		}
-	}
-
-	if jsonData == "" {
-		return nil, fmt.Errorf("no data in SSE response")
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
-		return nil, fmt.Errorf("failed to parse SSE data: %w", err)
-	}
-
-	return c.parseJSONTools(response)
-}
-
-func (c *MCPClient) parseSSEContent(resp *http.Response) ([]byte, error) {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	bodyStr := string(body)
-	lines := strings.Split(bodyStr, "\n")
-	var jsonData string
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "data: ") {
-			jsonData = strings.TrimPrefix(line, "data: ")
-			break
-		}
-	}
-
-	if jsonData == "" {
-		return nil, fmt.Errorf("no data in SSE response")
-	}
-
-	var response map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonData), &response); err != nil {
-		return nil, fmt.Errorf("failed to parse SSE data: %w", err)
-	}
-
-	return c.parseJSONContent(response)
-}
-
-func (c *MCPClient) extractTools(toolsArr []interface{}) ([]MCPTool, error) {
 	tools := make([]MCPTool, 0, len(toolsArr))
 	for _, t := range toolsArr {
 		toolMap, ok := t.(map[string]interface{})
@@ -249,6 +173,7 @@ func (c *MCPClient) GetAllEnabledTools(ctx context.Context, servers []*MCPServer
 		}
 
 		allTools = append(allTools, tools...)
+		log.Printf("MCP server %s: got %d tools", server.Name, len(tools))
 	}
 
 	return allTools, nil
@@ -273,17 +198,13 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 		},
 	}
 
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
+	body, _ := json.Marshal(reqBody)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", session.endpoint, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, "POST", session.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
 
 	resp, err := session.client.Do(req)
 	if err != nil {
@@ -291,20 +212,16 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 	}
 	defer resp.Body.Close()
 
-	contentType := resp.Header.Get("Content-Type")
-	if strings.Contains(contentType, "text/event-stream") {
-		return c.parseSSEContent(resp)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	var response map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(respBody, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	return c.parseJSONContent(response)
-}
-
-func (c *MCPClient) parseJSONContent(response map[string]interface{}) ([]byte, error) {
 	if errorResp, ok := response["error"].(map[string]interface{}); ok {
 		return nil, fmt.Errorf("MCP error: %v", errorResp)
 	}
@@ -337,10 +254,8 @@ func (c *MCPClient) DisconnectServer(serverID int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, ok := c.sessions[serverID]; ok {
-		delete(c.sessions, serverID)
-		log.Printf("Disconnected MCP server ID: %d", serverID)
-	}
+	delete(c.sessions, serverID)
+	log.Printf("Disconnected MCP server ID: %d", serverID)
 }
 
 func (c *MCPClient) DisconnectAll() {
@@ -373,4 +288,11 @@ func getMap(m map[string]interface{}, key string) map[string]interface{} {
 		return v
 	}
 	return make(map[string]interface{})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
