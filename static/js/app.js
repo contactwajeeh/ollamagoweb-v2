@@ -524,36 +524,32 @@ async function runMCPTool() {
 
     const result = await res.json();
 
-    // Display result in chat
-    const printout = document.getElementById('printout');
-    const welcome = document.getElementById('welcomeMessage');
-    if (welcome) welcome.style.display = 'none';
-
-    const formattedContent = converter.makeHtml(`**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`);
-    const msgId = Date.now();
-    printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msgId, `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`, true, {}, 0));
+    // Append result to user input textarea
+    const textarea = document.getElementById('prompt');
+    if (textarea) {
+      const currentContent = textarea.value.trim();
+      const toolResult = `**MCP Tool Result (${selectedMCPTool.name}):**\n\n${result.result || 'No output'}`;
+      textarea.value = currentContent ? `${currentContent}\n\n${toolResult}` : toolResult;
+      textarea.focus();
+    }
 
     // Close modal and reset after successful run
     closeMCPToolModal();
 
-    // Scroll to bottom
-    scrollToBottom();
-
   } catch (err) {
     console.error('Error running MCP tool:', err);
-    const printout = document.getElementById('printout');
-    const welcome = document.getElementById('welcomeMessage');
-    if (welcome) welcome.style.display = 'none';
 
-    const formattedContent = converter.makeHtml(`**Error running MCP tool:** ${err.message}`);
-    const msgId = Date.now();
-    printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msgId, `**Error running MCP tool:** ${err.message}`, true, {}, 0));
+    // Append error to user input textarea
+    const textarea = document.getElementById('prompt');
+    if (textarea) {
+      const currentContent = textarea.value.trim();
+      const errorText = `**Error running MCP tool:** ${err.message}`;
+      textarea.value = currentContent ? `${currentContent}\n\n${errorText}` : errorText;
+      textarea.focus();
+    }
 
     // Close modal and reset after error
     closeMCPToolModal();
-
-    // Scroll to bottom
-    scrollToBottom();
   } finally {
     runBtn.disabled = false;
     runBtn.textContent = 'Run Tool';
