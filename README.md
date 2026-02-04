@@ -338,7 +338,6 @@ ollamagoweb/
 ├── database.go          # Database, migrations, pooling
 ├── crypto.go            # Encryption (Bcrypt)
 ├── auth.go              # Authentication system
-
 ├── provider.go          # Provider implementations
 ├── search.go            # Brave Search integration
 ├── summarizer.go        # Context summarization
