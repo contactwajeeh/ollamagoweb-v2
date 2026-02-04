@@ -57,12 +57,6 @@
       <header class="app-header" role="banner">
         <div class="header-left">
           <h1 class="app-title">🦙 OllamaGoWeb</h1>
-          <div class="model-selector">
-            <span id="providerName" class="provider-badge" title="Active provider" aria-hidden="true"></span>
-            <select id="modelSelect" class="model-dropdown" title="Select model" aria-label="Select model">
-              <option>Loading...</option>
-            </select>
-          </div>
         </div>
         <div class="header-right">
           <div class="progress-container" id="progress-container" role="status" aria-live="polite"></div>
@@ -98,6 +92,12 @@
 
       <!-- Input Area -->
       <footer class="chat-input-area" role="contentinfo" aria-label="Message input">
+        <div class="input-model-selector">
+          <span id="providerName" class="provider-badge" title="Active provider" aria-hidden="true"></span>
+          <select id="modelSelect" class="model-dropdown" title="Select model" aria-label="Select model">
+            <option>Loading...</option>
+          </select>
+        </div>
         <form id="chatForm" class="input-form" aria-label="Chat message form">
           <div class="input-wrapper">
             <textarea id="prompt" class="chat-input" placeholder="Type your message..." rows="1" autofocus aria-label="Type your message"></textarea>
