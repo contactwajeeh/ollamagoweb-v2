@@ -1,22 +1,24 @@
 const MAX_CONVERSATIONS = 3;
+const MESSAGE_PAGE_SIZE = 50;
+const UNDO_TIMEOUT = 5000;
+
 var converter = new showdown.Converter({
   tables: true,
   tablesHeaderId: true,
   strikethrough: true,
   tasklists: true
 });
-let currentChatId = null;
-let chatsList = [];
-let csrfToken = null;
-let messageOffset = 0;
-let hasMoreMessages = true;
-let isLoadingMessages = false;
-const MESSAGE_PAGE_SIZE = 50;
 
-// Deleted chat undo buffer
-let deletedChatBuffer = null;
-let deletedChatTimer = null;
-const UNDO_TIMEOUT = 5000; // 5 seconds to undo
+const ChatState = {
+  currentChatId: null,
+  chatsList: [],
+  csrfToken: null,
+  messageOffset: 0,
+  hasMoreMessages: true,
+  isLoadingMessages: false,
+  deletedChatBuffer: null,
+  deletedChatTimer: null
+};
 
 // ============================================
 // Error Boundary & Global Error Handling
@@ -143,9 +145,8 @@ async function safeFetch(url, options = {}) {
       ...options.headers
     };
 
-    // Add CSRF token if available
-    if (csrfToken) {
-      headers['X-CSRF-Token'] = csrfToken;
+    if (ChatState.csrfToken) {
+      headers['X-CSRF-Token'] = ChatState.csrfToken;
     }
 
     const response = await fetch(url, {
@@ -571,7 +572,7 @@ async function loadChatsList() {
     const res = await fetch('/api/chats');
     if (!res.ok) return;
 
-    chatsList = await res.json();
+    ChatState.chatsList = await res.json();
     renderChatsList();
   } catch (err) {
     console.log('Error loading chats:', err);
@@ -583,15 +584,14 @@ async function loadChatsList() {
 function renderChatsList(filter = '') {
   const container = document.getElementById('chatList');
 
-  if (!chatsList || chatsList.length === 0) {
+  if (!ChatState.chatsList || ChatState.chatsList.length === 0) {
     container.innerHTML = '<div class="chat-list-loading">No chats yet</div>';
     return;
   }
 
-  // Filter chats by title if search query provided
   const filteredChats = filter
-    ? chatsList.filter(chat => chat.title.toLowerCase().includes(filter.toLowerCase()))
-    : chatsList;
+    ? ChatState.chatsList.filter(chat => chat.title.toLowerCase().includes(filter.toLowerCase()))
+    : ChatState.chatsList;
 
   if (filteredChats.length === 0) {
     container.innerHTML = '<div class="chat-list-loading">No matching chats</div>';
@@ -599,7 +599,7 @@ function renderChatsList(filter = '') {
   }
 
   container.innerHTML = filteredChats.map(chat => `
-    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}"
+    <div class="chat-item ${chat.id === ChatState.currentChatId ? 'active' : ''} ${chat.is_pinned ? 'pinned' : ''}"
          data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
       <div class="chat-item-content">
         <div class="chat-item-title">
@@ -614,7 +614,6 @@ function renderChatsList(filter = '') {
     </div>
   `).join('');
 
-  // Update selection tracking
   document.querySelectorAll('.chat-item').forEach(item => {
     item.addEventListener('click', () => {
       selectedChatIdForAction = parseInt(item.dataset.chatId);
@@ -651,7 +650,7 @@ function renderSearchResults(results, query) {
   }
 
   container.innerHTML = results.map(chat => `
-    <div class="chat-item ${chat.id === currentChatId ? 'active' : ''}"
+    <div class="chat-item ${chat.id === ChatState.currentChatId ? 'active' : ''}"
          data-chat-id="${chat.id}" onclick="selectChat(${chat.id})">
       <div class="chat-item-content">
         <div class="chat-item-title">${escapeHtml(chat.title)}</div>
@@ -682,110 +681,107 @@ function formatDate(dateStr) {
   }
 }
 
+// Render messages from chat data - shared between selectChat and loadCurrentChat
+function renderMessages(chat, options = {}) {
+  const printout = document.getElementById('printout');
+  if (!printout) return;
+
+  printout.innerHTML = '';
+
+  if (!chat.messages || chat.messages.length === 0) {
+    printout.innerHTML = `
+      <div class="welcome-message" id="welcomeMessage">
+        <div class="welcome-icon">🦙</div>
+        <h2>Welcome to OllamaGoWeb</h2>
+        <p>Start a conversation by typing a message below.</p>
+        <p class="welcome-hint">Press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</p>
+      </div>
+    `;
+    return;
+  }
+
+  const welcome = document.getElementById('welcomeMessage');
+  if (welcome) welcome.style.display = 'none';
+
+  const versionGroups = {};
+  for (const msg of chat.messages) {
+    if (msg.version_group) {
+      if (!versionGroups[msg.version_group]) {
+        versionGroups[msg.version_group] = [];
+      }
+      versionGroups[msg.version_group].push(msg);
+    }
+  }
+
+  let i = 0;
+  while (i < chat.messages.length) {
+    const msg = chat.messages[i];
+
+    if (msg.version_group && versionGroups[msg.version_group]) {
+      const groupMsgs = versionGroups[msg.version_group];
+      delete versionGroups[msg.version_group];
+
+      const pairs = [];
+      for (let j = 0; j < groupMsgs.length; j++) {
+        if (groupMsgs[j].role === 'user') {
+          const pair = { user: groupMsgs[j], assistant: null };
+          if (j + 1 < groupMsgs.length && groupMsgs[j + 1].role === 'assistant') {
+            pair.assistant = groupMsgs[j + 1];
+            j++;
+          }
+          pairs.push(pair);
+        }
+      }
+
+      if (pairs.length > 0) {
+        printout.insertAdjacentHTML('beforeend', createVersionGroupHtml(pairs, msg.version_group));
+      }
+
+      while (i < chat.messages.length && chat.messages[i].version_group === msg.version_group) {
+        i++;
+      }
+    } else {
+      const versionCount = countVersions(chat.messages, msg.id);
+      if (msg.role === 'user') {
+        printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content, versionCount));
+      } else {
+        const meta = {};
+        if (msg.model_name) meta.model = msg.model_name;
+        if (msg.tokens_used) meta.tokens = msg.tokens_used;
+        printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta, versionCount));
+      }
+      i++;
+    }
+  }
+
+  if (options.setupCopyButtons !== false) {
+    setupCodeBlockCopyButtons();
+  }
+}
+
 // Select a chat from sidebar
 async function selectChat(chatId) {
-  if (chatId === currentChatId) {
+  if (chatId === ChatState.currentChatId) {
     closeSidebar();
     return;
   }
 
-  // Reset lazy loading state
-  messageOffset = 0;
-  hasMoreMessages = true;
-  isLoadingMessages = false;
+  ChatState.messageOffset = 0;
+  ChatState.hasMoreMessages = true;
+  ChatState.isLoadingMessages = false;
 
   try {
     const res = await fetch(`/api/chats/${chatId}`);
     if (!res.ok) return;
 
     const chat = await res.json();
-    currentChatId = chat.id;
+    ChatState.currentChatId = chat.id;
 
-    // Update sidebar active state
     document.querySelectorAll('.chat-item').forEach(item => {
       item.classList.toggle('active', parseInt(item.dataset.chatId) === chatId);
     });
 
-    // Clear and render messages
-    const printout = document.getElementById('printout');
-    printout.innerHTML = '';
-
-    if (chat.messages && chat.messages.length > 0) {
-      const welcome = document.getElementById('welcomeMessage');
-      if (welcome) welcome.style.display = 'none';
-
-      // Group messages by version_group
-      const versionGroups = {};
-      const regularMessages = [];
-
-      for (const msg of chat.messages) {
-        if (msg.version_group) {
-          if (!versionGroups[msg.version_group]) {
-            versionGroups[msg.version_group] = [];
-          }
-          versionGroups[msg.version_group].push(msg);
-        } else {
-          regularMessages.push(msg);
-        }
-      }
-
-      // Render regular messages and version groups
-      let i = 0;
-      while (i < chat.messages.length) {
-        const msg = chat.messages[i];
-
-        if (msg.version_group && versionGroups[msg.version_group]) {
-          // Render version group
-          const groupMsgs = versionGroups[msg.version_group];
-          delete versionGroups[msg.version_group]; // Mark as rendered
-
-          // Pair messages: user+assistant pairs
-          const pairs = [];
-          for (let j = 0; j < groupMsgs.length; j++) {
-            if (groupMsgs[j].role === 'user') {
-              const pair = { user: groupMsgs[j], assistant: null };
-              // Find the matching assistant message
-              if (j + 1 < groupMsgs.length && groupMsgs[j + 1].role === 'assistant') {
-                pair.assistant = groupMsgs[j + 1];
-                j++;
-              }
-              pairs.push(pair);
-            }
-          }
-
-          if (pairs.length > 0) {
-            printout.insertAdjacentHTML('beforeend', createVersionGroupHtml(pairs, msg.version_group));
-          }
-
-          // Skip the messages we just processed
-          while (i < chat.messages.length && chat.messages[i].version_group === msg.version_group) {
-            i++;
-          }
-        } else {
-          // Render regular message with version count
-          const versionCount = countVersions(chat.messages, msg.id);
-          if (msg.role === 'user') {
-            printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content, versionCount));
-          } else {
-            const meta = {};
-            if (msg.model_name) meta.model = msg.model_name;
-            if (msg.tokens_used) meta.tokens = msg.tokens_used;
-            printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta, versionCount));
-          }
-          i++;
-        }
-      }
-    } else {
-      printout.innerHTML = `
-        <div class="welcome-message" id="welcomeMessage">
-          <div class="welcome-icon">🦙</div>
-          <h2>Welcome to OllamaGoWeb</h2>
-          <p>Start a conversation by typing a message below.</p>
-          <p class="welcome-hint">Press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</p>
-        </div>
-      `;
-    }
-
+    renderMessages(chat);
     scrollToBottom();
     closeSidebar();
   } catch (err) {
@@ -827,21 +823,18 @@ async function deleteChat(chatId, event) {
     const res = await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete');
 
-    // Store in undo buffer
-    const chatToDelete = chatsList.find(c => c.id === chatId);
+    const chatToDelete = ChatState.chatsList.find(c => c.id === chatId);
     if (chatToDelete) {
-      deletedChatBuffer = { chat: chatToDelete, timestamp: Date.now() };
+      ChatState.deletedChatBuffer = { chat: chatToDelete, timestamp: Date.now() };
       showUndoNotification(chatToDelete.title);
     }
 
-    // Remove from list
-    chatsList = chatsList.filter(c => c.id !== chatId);
+    ChatState.chatsList = ChatState.chatsList.filter(c => c.id !== chatId);
     renderChatsList();
 
-    // If we deleted current chat, load another or create new
-    if (chatId === currentChatId) {
-      if (chatsList.length > 0) {
-        await selectChat(chatsList[0].id);
+    if (chatId === ChatState.currentChatId) {
+      if (ChatState.chatsList.length > 0) {
+        await selectChat(ChatState.chatsList[0].id);
       } else {
         await startNewChat();
       }
@@ -853,12 +846,10 @@ async function deleteChat(chatId, event) {
 }
 
 function showUndoNotification(chatTitle) {
-  // Clear any existing timer
-  if (deletedChatTimer) {
-    clearTimeout(deletedChatTimer);
+  if (ChatState.deletedChatTimer) {
+    clearTimeout(ChatState.deletedChatTimer);
   }
 
-  // Show notification
   const container = document.getElementById('toast-container') || createToastContainer();
   const toast = document.createElement('div');
   toast.className = 'undo-toast';
@@ -868,10 +859,9 @@ function showUndoNotification(chatTitle) {
   `;
   container.appendChild(toast);
 
-  // Set timer for auto-dismiss
-  deletedChatTimer = setTimeout(() => {
+  ChatState.deletedChatTimer = setTimeout(() => {
     toast.remove();
-    deletedChatBuffer = null;
+    ChatState.deletedChatBuffer = null;
   }, UNDO_TIMEOUT);
 }
 
@@ -884,10 +874,10 @@ function createToastContainer() {
 }
 
 async function undoDeleteChat() {
-  if (!deletedChatBuffer) return;
+  if (!ChatState.deletedChatBuffer) return;
 
   try {
-    const chat = deletedChatBuffer.chat;
+    const chat = ChatState.deletedChatBuffer.chat;
     const res = await fetch('/api/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -896,7 +886,7 @@ async function undoDeleteChat() {
 
     if (res.ok) {
       const data = await res.json();
-      chatsList.unshift({ id: data.id, title: chat.title, updated_at: chat.updated_at });
+      ChatState.chatsList.unshift({ id: data.id, title: chat.title, updated_at: chat.updated_at });
       renderChatsList();
       notify.success('Chat restored');
     }
@@ -904,14 +894,12 @@ async function undoDeleteChat() {
     console.error('Failed to restore chat:', err);
   }
 
-  // Clear buffer
-  deletedChatBuffer = null;
-  if (deletedChatTimer) {
-    clearTimeout(deletedChatTimer);
-    deletedChatTimer = null;
+  ChatState.deletedChatBuffer = null;
+  if (ChatState.deletedChatTimer) {
+    clearTimeout(ChatState.deletedChatTimer);
+    ChatState.deletedChatTimer = null;
   }
 
-  // Remove toast
   const toast = document.querySelector('.undo-toast');
   if (toast) toast.remove();
 }
@@ -1007,87 +995,24 @@ async function togglePinChat(chatId, isPinned, event) {
 
 // Load current/most recent chat
 async function loadCurrentChat() {
-  // Reset lazy loading state
-  messageOffset = 0;
-  hasMoreMessages = true;
-  isLoadingMessages = false;
+  ChatState.messageOffset = 0;
+  ChatState.hasMoreMessages = true;
+  ChatState.isLoadingMessages = false;
 
   try {
     const res = await fetch('/api/chats/current');
     if (!res.ok) return;
 
     const chat = await res.json();
-    currentChatId = chat.id;
+    ChatState.currentChatId = chat.id;
 
-    // Update sidebar active state
     renderChatsList();
+    renderMessages(chat);
 
-    // Hide welcome message if there are messages
     if (chat.messages && chat.messages.length > 0) {
-      const welcome = document.getElementById('welcomeMessage');
-      if (welcome) welcome.style.display = 'none';
-
-      // Render existing messages using the same logic as selectChat
-      const printout = document.getElementById('printout');
-      printout.innerHTML = '';
-
-      // Group messages by version_group
-      const versionGroups = {};
-      for (const msg of chat.messages) {
-        if (msg.version_group) {
-          if (!versionGroups[msg.version_group]) {
-            versionGroups[msg.version_group] = [];
-          }
-          versionGroups[msg.version_group].push(msg);
-        }
-      }
-
-      // Render messages
-      let i = 0;
-      while (i < chat.messages.length) {
-        const msg = chat.messages[i];
-
-        if (msg.version_group && versionGroups[msg.version_group]) {
-          const groupMsgs = versionGroups[msg.version_group];
-          delete versionGroups[msg.version_group];
-
-          const pairs = [];
-          for (let j = 0; j < groupMsgs.length; j++) {
-            if (groupMsgs[j].role === 'user') {
-              const pair = { user: groupMsgs[j], assistant: null };
-              if (j + 1 < groupMsgs.length && groupMsgs[j + 1].role === 'assistant') {
-                pair.assistant = groupMsgs[j + 1];
-                j++;
-              }
-              pairs.push(pair);
-            }
-          }
-
-          if (pairs.length > 0) {
-            printout.insertAdjacentHTML('beforeend', createVersionGroupHtml(pairs, msg.version_group));
-          }
-
-          while (i < chat.messages.length && chat.messages[i].version_group === msg.version_group) {
-            i++;
-          }
-        } else {
-          const versionCount = countVersions(chat.messages, msg.id);
-          if (msg.role === 'user') {
-            printout.insertAdjacentHTML('beforeend', createUserMessageHtml(msg.id, msg.content, versionCount));
-          } else {
-            const meta = {};
-            if (msg.model_name) meta.model = msg.model_name;
-            if (msg.tokens_used) meta.tokens = msg.tokens_used;
-            printout.insertAdjacentHTML('beforeend', createAssistantMessageHtml(msg.id, msg.content, true, meta, versionCount));
-          }
-          i++;
-        }
-      }
-      scrollToBottom();
-      setupCodeBlockCopyButtons();
+      updateProgressBar(chat.messages.length);
     }
-
-    updateProgressBar(chat.messages ? chat.messages.length : 0);
+    scrollToBottom();
   } catch (err) {
     console.log('Error loading chat:', err);
   }
@@ -1104,13 +1029,11 @@ async function startNewChat() {
 
     if (res.ok) {
       const data = await res.json();
-      currentChatId = data.id;
+      ChatState.currentChatId = data.id;
 
-      // Add to list and re-render
-      chatsList.unshift({ id: data.id, title: data.title, updated_at: new Date().toISOString() });
+      ChatState.chatsList.unshift({ id: data.id, title: data.title, updated_at: new Date().toISOString() });
       renderChatsList();
 
-      // Clear UI
       const printout = document.getElementById('printout');
       printout.innerHTML = `
         <div class="welcome-message" id="welcomeMessage">
@@ -1240,7 +1163,7 @@ function countVersions(messages, msgId) {
 
 // Show version history modal
 async function showVersionHistory(msgId) {
-  if (!currentChatId) return;
+  if (!ChatState.currentChatId) return;
 
   const modal = document.createElement('div');
   modal.className = 'version-modal-overlay';
@@ -1260,7 +1183,7 @@ async function showVersionHistory(msgId) {
   setTimeout(() => modal.classList.add('show'), 10);
 
   try {
-    const res = await fetch(`/api/chats/${currentChatId}`);
+    const res = await fetch(`/api/chats/${ChatState.currentChatId}`);
     if (!res.ok) throw new Error('Failed to load chat');
     const chat = await res.json();
 
@@ -1429,8 +1352,7 @@ async function sendMessage() {
 
   if (!prompt) return;
 
-  // Ensure we have a chat
-  if (!currentChatId) {
+  if (!ChatState.currentChatId) {
     const res = await fetch('/api/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1438,8 +1360,8 @@ async function sendMessage() {
     });
     if (res.ok) {
       const data = await res.json();
-      currentChatId = data.id;
-      chatsList.unshift({ id: data.id, title: data.title, updated_at: new Date().toISOString() });
+      ChatState.currentChatId = data.id;
+      ChatState.chatsList.unshift({ id: data.id, title: data.title, updated_at: new Date().toISOString() });
       renderChatsList();
     } else {
       console.error('Failed to create chat');
@@ -1447,17 +1369,15 @@ async function sendMessage() {
     }
   }
 
-  // Hide welcome message
   const welcome = document.getElementById('welcomeMessage');
   if (welcome) welcome.style.display = 'none';
 
   textarea.value = '';
   textarea.style.height = 'auto';
 
-  // Save user message to database
   let userMsgId;
   try {
-    const res = await fetch(`/api/chats/${currentChatId}/messages`, {
+    const res = await fetch(`/api/chats/${ChatState.currentChatId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: 'user', content: prompt })
@@ -1466,9 +1386,8 @@ async function sendMessage() {
       const data = await res.json();
       userMsgId = data.id;
 
-      // Update chat title in sidebar if this is first message
       const titlePreview = prompt.length > 30 ? prompt.substring(0, 30) + '...' : prompt;
-      const chatItem = chatsList.find(c => c.id === currentChatId);
+      const chatItem = ChatState.chatsList.find(c => c.id === ChatState.currentChatId);
       if (chatItem && chatItem.title === 'New Chat') {
         chatItem.title = titlePreview;
         renderChatsList();
@@ -1478,12 +1397,10 @@ async function sendMessage() {
     console.log('Error saving user message:', err);
   }
 
-  // Display user message
   const printout = document.getElementById('printout');
   printout.insertAdjacentHTML('beforeend', createUserMessageHtml(userMsgId || Date.now(), prompt));
   announce('Message sent. Waiting for AI response...');
 
-  // Create placeholder for assistant response
   const assistantMsgId = 'pending-' + Date.now();
   printout.insertAdjacentHTML('beforeend', `
     <div class="message-group assistant-message-group" data-msg-id="${assistantMsgId}">
@@ -1497,12 +1414,11 @@ async function sendMessage() {
   `);
   scrollToBottom();
 
-  // Get response
   try {
     const response = await fetch('/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: prompt, chat_id: currentChatId })
+      body: JSON.stringify({ input: prompt, chat_id: ChatState.currentChatId })
     });
 
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
@@ -1577,7 +1493,7 @@ async function sendMessage() {
           msgPayload.tokens_used = analytics.usage.total_tokens;
         }
       }
-      await fetch(`/api/chats/${currentChatId}/messages`, {
+      await fetch(`/api/chats/${ChatState.currentChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(msgPayload)
@@ -1602,7 +1518,7 @@ function updateProgressBar(count) {
   if (!container) return;
 
   if (count === undefined) {
-    fetch(`/api/chats/${currentChatId}`)
+    fetch(`/api/chats/${ChatState.currentChatId}`)
       .then(res => res.json())
       .then(chat => {
         const msgCount = chat.messages ? Math.ceil(chat.messages.length / 2) : 0;
@@ -1721,28 +1637,26 @@ function removeLoadingSkeleton() {
 // ============================================
 
 async function loadMoreMessages() {
-  if (isLoadingMessages || !hasMoreMessages || !currentChatId) return;
+  if (ChatState.isLoadingMessages || !ChatState.hasMoreMessages || !ChatState.currentChatId) return;
 
-  isLoadingMessages = true;
-  const nextOffset = messageOffset + MESSAGE_PAGE_SIZE;
+  ChatState.isLoadingMessages = true;
+  const nextOffset = ChatState.messageOffset + MESSAGE_PAGE_SIZE;
 
   try {
-    const res = await fetch(`/api/chats/${currentChatId}?limit=${MESSAGE_PAGE_SIZE}&offset=${nextOffset}`);
+    const res = await fetch(`/api/chats/${ChatState.currentChatId}?limit=${MESSAGE_PAGE_SIZE}&offset=${nextOffset}`);
     if (!res.ok) {
-      hasMoreMessages = false;
+      ChatState.hasMoreMessages = false;
       return;
     }
 
     const chat = await res.json();
     if (!chat.messages || chat.messages.length === 0) {
-      hasMoreMessages = false;
+      ChatState.hasMoreMessages = false;
       return;
     }
 
-    // Add messages to beginning of existing content
     const printout = document.getElementById('printout');
     if (printout && chat.messages.length > 0) {
-      // Insert messages at the beginning
       const tempDiv = document.createElement('div');
       for (const msg of chat.messages) {
         const versionCount = countVersions(chat.messages, msg.id);
@@ -1752,7 +1666,6 @@ async function loadMoreMessages() {
         tempDiv.innerHTML += msgHtml;
       }
 
-      // Insert before the first child
       const loadingIndicator = printout.querySelector('.loading-more-indicator');
       if (loadingIndicator) {
         printout.insertBefore(tempDiv.firstElementChild, loadingIndicator);
@@ -1760,19 +1673,18 @@ async function loadMoreMessages() {
         printout.insertBefore(tempDiv.firstElementChild, printout.firstChild);
       }
 
-      messageOffset = nextOffset;
+      ChatState.messageOffset = nextOffset;
       if (chat.messages.length < MESSAGE_PAGE_SIZE) {
-        hasMoreMessages = false;
+        ChatState.hasMoreMessages = false;
       }
 
-      // Add copy buttons to code blocks
       setupCodeBlockCopyButtons();
     }
   } catch (err) {
     console.warn('Failed to load more messages:', err);
-    hasMoreMessages = false;
+    ChatState.hasMoreMessages = false;
   } finally {
-    isLoadingMessages = false;
+    ChatState.isLoadingMessages = false;
   }
 }
 
@@ -1787,7 +1699,7 @@ function setupLazyLoading() {
 
 function handleMessagesScroll(e) {
   const container = e.target;
-  if (container.scrollTop < 100 && hasMoreMessages && !isLoadingMessages) {
+  if (container.scrollTop < 100 && ChatState.hasMoreMessages && !ChatState.isLoadingMessages) {
     loadMoreMessages();
   }
 }
@@ -2010,7 +1922,7 @@ async function saveInlineEdit(msgId, element) {
     }
 
     // Save the new user message to DB with version_group
-    const userRes = await fetch(`/api/chats/${currentChatId}/messages`, {
+    const userRes = await fetch(`/api/chats/${ChatState.currentChatId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: 'user', content: trimmedContent, version_group: versionGroupId })
@@ -2080,7 +1992,7 @@ async function generateResponseForVersion(prompt, assistantMsgId, versionElement
     const response = await fetch('/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: prompt, chat_id: currentChatId })
+      body: JSON.stringify({ input: prompt, chat_id: ChatState.currentChatId })
     });
 
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
@@ -2128,7 +2040,7 @@ async function generateResponseForVersion(prompt, assistantMsgId, versionElement
         if (analytics.model) msgPayload.model_name = analytics.model;
         if (analytics.usage?.total_tokens) msgPayload.tokens_used = analytics.usage.total_tokens;
       }
-      const saveRes = await fetch(`/api/chats/${currentChatId}/messages`, {
+      const saveRes = await fetch(`/api/chats/${ChatState.currentChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(msgPayload)
@@ -2249,7 +2161,7 @@ async function generateResponse(prompt) {
     const response = await fetch('/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: prompt, chat_id: currentChatId })
+      body: JSON.stringify({ input: prompt, chat_id: ChatState.currentChatId })
     });
 
     if (!response.ok) throw new Error(`Server error: ${response.status}`);
@@ -2318,7 +2230,7 @@ async function generateResponse(prompt) {
           msgPayload.tokens_used = analytics.usage.total_tokens;
         }
       }
-      const saveRes = await fetch(`/api/chats/${currentChatId}/messages`, {
+      const saveRes = await fetch(`/api/chats/${ChatState.currentChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(msgPayload)
@@ -2356,9 +2268,9 @@ async function generateResponse(prompt) {
 let currentSystemPrompt = '';
 
 async function loadSystemPrompt() {
-  if (!currentChatId) return;
-  try {
-    const res = await fetch(`/api/chats/${currentChatId}/system-prompt`);
+if (!ChatState.currentChatId) return;
+
+  const res = await fetch(`/api/chats/${ChatState.currentChatId}/system-prompt`);
     if (res.ok) {
       const data = await res.json();
       currentSystemPrompt = data.system_prompt || '';
@@ -2382,12 +2294,9 @@ function updateSystemPromptUI() {
 
 async function saveSystemPrompt() {
   const textarea = document.getElementById('systemPromptInput');
-  if (!textarea || !currentChatId) return;
+if (!textarea || !ChatState.currentChatId) return;
 
-  const newPrompt = textarea.value.trim();
-
-  try {
-    const res = await fetch(`/api/chats/${currentChatId}/system-prompt`, {
+  const res = await fetch(`/api/chats/${ChatState.currentChatId}/system-prompt`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ system_prompt: newPrompt })
