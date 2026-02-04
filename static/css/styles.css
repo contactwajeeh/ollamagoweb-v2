@@ -474,11 +474,16 @@ body {
   font-size: 0.95rem;
   word-wrap: break-word;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
 }
 
 .response-wrapper {
   align-self: flex-start;
   max-width: 85%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .response-message {
@@ -489,7 +494,10 @@ body {
   font-size: 0.95rem;
   line-height: 1.7;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
   border: 1px solid var(--border-color);
+  overflow: hidden;
 }
 
 /* Loading spinner */
@@ -889,10 +897,89 @@ pre {
   overflow-x: auto;
   margin: 12px 0;
   font-size: 0.85rem;
+  max-width: 100%;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* MCP Tool Accordion */
+.mcp-accordion {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.mcp-accordion-header {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.mcp-accordion-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.mcp-accordion-icon {
+  transition: transform 0.2s ease;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.mcp-accordion-header.active .mcp-accordion-icon {
+  transform: rotate(90deg);
+}
+
+.mcp-accordion-error {
+  border-color: var(--color-error);
+}
+
+.mcp-accordion-error .mcp-accordion-header {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.mcp-accordion-title {
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.mcp-accordion-content {
+  border-top: 1px solid var(--border-color);
+}
+
+.mcp-accordion-content.active {
+  display: block;
+}
+
+.mcp-tool-output {
+  margin: 0;
+  padding: 16px;
+  font-size: 0.85rem;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--bg-tertiary);
+}
+
+.mcp-tool-output code {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 code {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  word-wrap: break-word;
+  word-break: break-all;
 }
 
 /* Scrollbar */
