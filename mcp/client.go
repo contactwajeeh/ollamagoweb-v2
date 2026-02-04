@@ -60,6 +60,7 @@ func (c *MCPClient) ConnectServer(ctx context.Context, server *MCPServer) error 
 	defer c.mu.Unlock()
 
 	if _, ok := c.sessions[server.ID]; ok {
+		log.Printf("MCP server already connected: %s (ID: %d)", server.Name, server.ID)
 		return nil
 	}
 
@@ -71,7 +72,7 @@ func (c *MCPClient) ConnectServer(ctx context.Context, server *MCPServer) error 
 		serverID: server.ID,
 	}
 
-	log.Printf("Connected to MCP server: %s (ID: %d)", server.Name, server.ID)
+	log.Printf("Connected to MCP server: %s (ID: %d), endpoint: %s", server.Name, server.ID, server.EndpointURL)
 	return nil
 }
 
@@ -86,7 +87,7 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 
 	reqBody := map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      1,
+		"id":      "1",
 		"method":  "tools/list",
 		"params":  map[string]interface{}{},
 	}
@@ -98,7 +99,8 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Accept", "text/event-stream")
 
 	resp, err := session.client.Do(req)
 	if err != nil {
@@ -111,9 +113,22 @@ func (c *MCPClient) ListTools(ctx context.Context, serverID int64) ([]MCPTool, e
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	respBodyStr := string(respBody)
+	var jsonStr string
+
+	if strings.Contains(respBodyStr, "data: ") {
+		dataLine := strings.Split(respBodyStr, "data: ")[1]
+		jsonStr = strings.TrimSpace(dataLine)
+		if idx := strings.Index(jsonStr, "\n"); idx != -1 {
+			jsonStr = jsonStr[:idx]
+		}
+	} else {
+		jsonStr = respBodyStr
+	}
+
 	var response map[string]interface{}
-	if err := json.Unmarshal(respBody, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w, body: %s", err, string(respBody[:min(200, len(respBody))]))
+	if err := json.Unmarshal([]byte(jsonStr), &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w, body: %s", err, jsonStr[:min(200, len(jsonStr))])
 	}
 
 	if errorResp, ok := response["error"].(map[string]interface{}); ok {
@@ -185,15 +200,30 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 	c.mu.RUnlock()
 
 	if !ok {
+		log.Printf("Warning: no active session for server ID: %d. Available sessions: %v", serverID, func() []int64 {
+			c.mu.RLock()
+			defer c.mu.RUnlock()
+			keys := make([]int64, 0, len(c.sessions))
+			for k := range c.sessions {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
 		return nil, fmt.Errorf("no active session for server ID: %d", serverID)
+	}
+
+	// Remove server prefix from tool name (format: servername_toolname)
+	toolName := name
+	if idx := strings.Index(name, "_"); idx != -1 {
+		toolName = name[idx+1:]
 	}
 
 	reqBody := map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      time.Now().UnixNano(),
+		"id":      fmt.Sprintf("%d", time.Now().UnixNano()),
 		"method":  "tools/call",
 		"params": map[string]interface{}{
-			"name":      name,
+			"name":      toolName,
 			"arguments": arguments,
 		},
 	}
@@ -205,6 +235,8 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Accept", "text/event-stream")
 
 	resp, err := session.client.Do(req)
 	if err != nil {
@@ -217,8 +249,21 @@ func (c *MCPClient) CallTool(ctx context.Context, serverID int64, name string, a
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	respBodyStr := string(respBody)
+	var jsonStr string
+
+	if strings.Contains(respBodyStr, "data: ") {
+		dataLine := strings.Split(respBodyStr, "data: ")[1]
+		jsonStr = strings.TrimSpace(dataLine)
+		if idx := strings.Index(jsonStr, "\n"); idx != -1 {
+			jsonStr = jsonStr[:idx]
+		}
+	} else {
+		jsonStr = respBodyStr
+	}
+
 	var response map[string]interface{}
-	if err := json.Unmarshal(respBody, &response); err != nil {
+	if err := json.Unmarshal([]byte(jsonStr), &response); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
