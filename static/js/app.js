@@ -2268,9 +2268,10 @@ async function generateResponse(prompt) {
 let currentSystemPrompt = '';
 
 async function loadSystemPrompt() {
-if (!ChatState.currentChatId) return;
+  if (!ChatState.currentChatId) return;
 
-  const res = await fetch(`/api/chats/${ChatState.currentChatId}/system-prompt`);
+  try {
+    const res = await fetch(`/api/chats/${ChatState.currentChatId}/system-prompt`);
     if (res.ok) {
       const data = await res.json();
       currentSystemPrompt = data.system_prompt || '';
@@ -2294,9 +2295,12 @@ function updateSystemPromptUI() {
 
 async function saveSystemPrompt() {
   const textarea = document.getElementById('systemPromptInput');
-if (!textarea || !ChatState.currentChatId) return;
+  if (!textarea || !ChatState.currentChatId) return;
 
-  const res = await fetch(`/api/chats/${ChatState.currentChatId}/system-prompt`, {
+  const newPrompt = textarea.value.trim();
+
+  try {
+    const res = await fetch(`/api/chats/${ChatState.currentChatId}/system-prompt`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ system_prompt: newPrompt })
