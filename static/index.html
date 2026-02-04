@@ -98,6 +98,16 @@
             <option>Loading...</option>
           </select>
         </div>
+        <div class="input-mcp-selector" id="mcpToolSelector" style="display: none;">
+          <span class="mcp-badge" title="MCP Tools" aria-hidden="true">🔧</span>
+          <select id="mcpToolSelect" class="mcp-dropdown" title="Select MCP tool" aria-label="Select MCP tool">
+            <option value="">-- Select Tool --</option>
+          </select>
+        </div>
+        <div id="mcpToolParams" class="mcp-params-container" style="display: none;">
+          <div id="mcpToolParamsForm" class="mcp-params-form"></div>
+          <button type="button" id="mcpToolRunBtn" class="mcp-run-btn">Run Tool</button>
+        </div>
         <form id="chatForm" class="input-form" aria-label="Chat message form">
           <div class="input-wrapper">
             <textarea id="prompt" class="chat-input" placeholder="Type your message..." rows="1" autofocus aria-label="Type your message"></textarea>
