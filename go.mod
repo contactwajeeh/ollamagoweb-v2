@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/go-chi/chi v1.5.5
 	github.com/joho/godotenv v1.5.1
+	github.com/klauspost/compress v1.17.9
 	github.com/ollama/ollama v0.3.3
 	github.com/tmc/langchaingo v0.1.12
 	golang.org/x/crypto v0.38.0

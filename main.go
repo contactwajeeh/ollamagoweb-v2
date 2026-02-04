@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/joho/godotenv"
+	"github.com/klauspost/compress/gzhttp"
 	"github.com/ollama/ollama/api"
 	_ "modernc.org/sqlite"
 )
@@ -63,9 +64,10 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"token": token})
 	})
 
-	// Static files
-	r.Handle("/static/*", http.StripPrefix("/static",
-		http.FileServer(http.Dir("./static"))))
+	// Static files with compression
+	staticHandler := http.StripPrefix("/static",
+		http.FileServer(http.Dir("./static")))
+	r.Handle("/static/*", gzhttp.GzipHandler(staticHandler))
 
 	// Main routes
 	r.Get("/", index)
