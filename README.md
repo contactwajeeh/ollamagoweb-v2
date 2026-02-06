@@ -346,8 +346,6 @@ ollamagoweb/
 │   │   └── styles.css  # Styles, accessibility, animations
 │   └── js/
 │       ├── app.js      # Main application logic
-│       ├── state.js    # ChatState class (centralized state)
-│       ├── api.js      # API client modules
 │       └── settings.js # Settings page logic
 │
 ├── e2e/
