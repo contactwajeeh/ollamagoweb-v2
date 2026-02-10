@@ -126,6 +126,7 @@ func main() {
 	r.Post("/api/memories", setMemory)
 	r.Delete("/api/memories", deleteMemory)
 	r.Get("/api/memories/search", searchMemories)
+	r.Post("/api/memories/extract", testMemoryExtraction)
 
 	// Model switching
 	r.Post("/api/switch-model", switchModel)

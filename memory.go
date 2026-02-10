@@ -114,57 +114,75 @@ type ExtractedMemory struct {
 }
 
 func ExtractMemoriesWithLLM(db *sql.DB, sessionID, userMessage string, provider Provider, history []api.Message) {
-	extractionPrompt := fmt.Sprintf(`You are a memory extraction assistant. Analyze the following user message and extract any important information that should be remembered.
+	log.Printf("Starting LLM memory extraction for message: %s", userMessage)
 
-User message: "%s"
+	extractionPrompt := fmt.Sprintf(`You are a memory extraction assistant. Your job is to extract important information from the user's message that should be remembered for future conversations.
 
-Extract memories in these categories:
-- reminder: Appointments, meetings, tasks, deadlines, things to remember
-- fact: Personal information, preferences, important details about the user
-- preference: How the user likes things done, communication style, formatting preferences
-- entity: People, organizations, locations mentioned
+Analyze this user message:
+"%s"
 
-Return a JSON array of memories with this structure:
-[
-  {
-    "key": "unique_identifier (e.g., reminder_meeting_ram_5pm)",
-    "value": "detailed description (e.g., Meeting with Ram at 5 PM EST)",
-    "category": "category_name",
-    "confidence": 85 (1-100, higher = more confident)"
-  }
-]
+Extract any memories from these categories:
+- reminder: appointments, meetings, tasks, deadlines, things to remember
+- fact: personal information, important details about the user
+- preference: how the user likes things done, communication style
+- entity: people, organizations, locations mentioned
 
-Guidelines:
-- Only extract if information is genuinely useful to remember
-- For reminders, include date/time/location if mentioned
-- Create descriptive but concise keys
-- Confidence 90-100 for explicit statements, 70-89 for implied information
-- If no memories to extract, return empty array []
+For each memory you find, create a JSON object with these exact fields:
+- key: a short unique identifier (use underscores, e.g., "reminder_meeting_ram_5pm")
+- value: the full information to remember (e.g., "Meeting with Ram at 5 PM EST")
+- category: one of: reminder, fact, preference, entity
+- confidence: a number from 70-100 (90-100 for explicit statements, 70-89 for implied)
 
-Return ONLY the JSON array, no other text.`, userMessage)
+Return your response as a JSON array containing all the memories you found.
 
-	extractionMessages := []api.Message{
-		{
-			Role:    "system",
-			Content: "You are a memory extraction assistant. Always respond with valid JSON arrays.",
-		},
-		{
-			Role:    "user",
-			Content: extractionPrompt,
-		},
-	}
+Examples:
+Input: "Remind me about my meeting with Ram at 5 PM EST"
+Output: [{"key":"reminder_meeting_ram_5pm","value":"Meeting with Ram at 5 PM EST","category":"reminder","confidence":95}]
+
+Input: "My name is John and I prefer concise responses"
+Output: [{"key":"name","value":"John","category":"fact","confidence":95},{"key":"response_style","value":"concise","category":"preference","confidence":90}]
+
+If no memories found, return an empty array: []
+
+Respond ONLY with the JSON array. No markdown, no explanation.`, userMessage)
 
 	wr := newResponseWriter()
-	if err := provider.Generate(context.Background(), extractionMessages, "", "", wr); err != nil {
+	if err := provider.Generate(context.Background(), nil, extractionPrompt, "You are a JSON extraction assistant. Always respond with valid JSON arrays only.", wr); err != nil {
 		log.Printf("Error extracting memories: %v", err)
 		return
 	}
 
 	response := strings.TrimSpace(wr.String())
+	log.Printf("Raw LLM extraction response (first 500 chars): %s", truncateString(response, 500))
+
+	response = strings.TrimSpace(response)
+	response = strings.TrimPrefix(response, "```json")
+	response = strings.TrimPrefix(response, "```")
+	response = strings.TrimPrefix(response, "JSON:")
+	response = strings.TrimPrefix(response, "json:")
+	response = strings.TrimSpace(response)
+	response = strings.TrimSuffix(response, "```")
+	response = strings.TrimSpace(response)
+
+	startIdx := strings.Index(response, "[")
+	endIdx := strings.LastIndex(response, "]")
+
+	if startIdx == -1 || endIdx == -1 || startIdx >= endIdx {
+		log.Printf("Error: Could not find JSON array in response. Start: %d, End: %d", startIdx, endIdx)
+		return
+	}
+
+	jsonStr := response[startIdx : endIdx+1]
+	log.Printf("Extracted JSON: %s", jsonStr)
 
 	var extracted []ExtractedMemory
-	if err := json.Unmarshal([]byte(response), &extracted); err != nil {
-		log.Printf("Error parsing memory extraction response: %v, Response: %s", err, response)
+	if err := json.Unmarshal([]byte(jsonStr), &extracted); err != nil {
+		log.Printf("Error parsing memory extraction response: %v", jsonStr[:min(len(jsonStr), 200)])
+		return
+	}
+
+	if len(extracted) == 0 {
+		log.Printf("No memories extracted from message")
 		return
 	}
 
@@ -182,39 +200,47 @@ Return ONLY the JSON array, no other text.`, userMessage)
 			if err := SetMemory(db, sessionID, mem.Key, mem.Value, category, confidence); err != nil {
 				log.Printf("Error storing extracted memory: %v", err)
 			} else {
-				log.Printf("Extracted and stored memory: %s = %s", mem.Key, mem.Value)
+				log.Printf("✓ Extracted and stored memory: [%s] %s = %s", mem.Category, mem.Key, mem.Value)
 			}
 		}
 	}
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 type responseWriter struct {
-	builder    *strings.Builder
-	statusCode int
-	headers    http.Header
+	strings.Builder
+	header http.Header
 }
 
 func newResponseWriter() *responseWriter {
 	return &responseWriter{
-		builder: &strings.Builder{},
-		headers: make(http.Header),
+		header: make(http.Header),
 	}
 }
 
-func (w *responseWriter) Write(p []byte) (n int, err error) {
-	return w.builder.Write(p)
-}
-
-func (w *responseWriter) WriteHeader(code int) {
-	w.statusCode = code
-}
-
 func (w *responseWriter) Header() http.Header {
-	return w.headers
+	return w.header
 }
 
-func (w *responseWriter) String() string {
-	return w.builder.String()
+func (w *responseWriter) WriteHeader(statusCode int) {
+	// No-op
+}
+
+func (w *responseWriter) Flush() {
+	// No-op, satisfy http.Flusher
 }
 
 func SearchMemories(db *sql.DB, sessionID, query string) ([]Memory, error) {

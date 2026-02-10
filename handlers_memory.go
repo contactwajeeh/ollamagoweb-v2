@@ -167,3 +167,34 @@ func searchMemories(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, memories)
 }
+
+func testMemoryExtraction(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Message string `json:"message"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Message == "" {
+		WriteError(w, http.StatusBadRequest, "Message is required")
+		return
+	}
+
+	sessionID := getSessionIDFromRequest(r)
+
+	provider, _, err := GetActiveProvider(db)
+	if err != nil {
+		WriteError(w, http.StatusServiceUnavailable, "No active provider configured")
+		return
+	}
+
+	ExtractMemoriesWithLLM(db, sessionID, req.Message, provider, nil)
+
+	WriteJSON(w, map[string]string{
+		"message": "Memory extraction triggered. Check server logs for results.",
+		"input":   req.Message,
+	})
+}
