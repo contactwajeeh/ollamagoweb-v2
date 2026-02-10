@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -53,6 +55,25 @@ func main() {
 
 	// Initialize MCP client
 	mcp.InitMCPClient()
+
+	// Start background cleanup of expired link tokens
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			result, err := db.Exec(`
+				DELETE FROM session_link_tokens
+				WHERE used_at IS NOT NULL
+				   OR expires_at < CURRENT_TIMESTAMP
+			`)
+			if err != nil {
+				log.Printf("Error cleaning up expired link tokens: %v", err)
+			} else if rowsAffected, _ := result.RowsAffected(); rowsAffected > 0 {
+				log.Printf("Cleaned up %d expired/used link tokens", rowsAffected)
+			}
+		}
+	}()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -144,6 +165,9 @@ func main() {
 	r.Post("/api/auth/login", loginHandler)
 	r.Post("/api/auth/logout", logoutHandler)
 	r.Get("/admin", adminHandler)
+
+	// Session link token endpoint
+	r.Get("/api/session/link-token", getSessionLinkToken)
 
 	// Protected routes (apply auth middleware)
 	protected := chi.NewRouter()
@@ -434,4 +458,36 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// getSessionLinkToken generates a secure token for linking Telegram to web sessions
+func getSessionLinkToken(w http.ResponseWriter, r *http.Request) {
+	sessionID := getSessionIDFromRequest(r)
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		log.Printf("Error generating secure token: %v", err)
+		WriteError(w, http.StatusInternalServerError, "Failed to generate link token")
+		return
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	expiresAt := time.Now().Add(15 * time.Minute)
+
+	_, err := db.Exec(`
+		INSERT INTO session_link_tokens (token, session_id, expires_at)
+		VALUES (?, ?, ?)
+	`, token, sessionID, expiresAt)
+	if err != nil {
+		log.Printf("Error storing link token: %v", err)
+		WriteError(w, http.StatusInternalServerError, "Failed to generate link token")
+		return
+	}
+
+	WriteJSON(w, map[string]interface{}{
+		"session_id":   sessionID,
+		"link_token":   token,
+		"expires_at":   expiresAt.Format(time.RFC3339),
+		"instructions": "In Telegram: /link_session " + sessionID + " " + token,
+	})
 }

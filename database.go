@@ -123,6 +123,24 @@ func RunMigrations(db *sql.DB) {
 			UNIQUE(session_id, key)
 		)`,
 
+		// Session link tokens table (for secure Telegram-web session linking)
+		`CREATE TABLE IF NOT EXISTS session_link_tokens (
+			token TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			used_at DATETIME,
+			FOREIGN KEY (session_id) REFERENCES sessions(id)
+		)`,
+
+		// Telegram users table (links Telegram users to web sessions for shared context)
+		`CREATE TABLE IF NOT EXISTS telegram_users (
+			telegram_user_id INTEGER PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (session_id) REFERENCES sessions(id)
+		)`,
+
 		// Indexes
 		`CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active)`,
@@ -135,6 +153,7 @@ func RunMigrations(db *sql.DB) {
 		`CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers(is_enabled)`,
 		`CREATE INDEX IF NOT EXISTS idx_memory_session ON user_memories(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_memory_category ON user_memories(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_link_tokens_expiry ON session_link_tokens(expires_at)`,
 	}
 
 	for _, migration := range migrations {
