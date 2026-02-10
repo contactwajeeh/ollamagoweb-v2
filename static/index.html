@@ -194,6 +194,16 @@
         <button class="modal-close" onclick="closeMemoryModal()">×</button>
       </div>
       <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="memory-search" style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" id="memorySearchInput" placeholder="Search memories..." class="chat-input" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--text-primary);" oninput="filterMemories()">
+          <select id="memoryCategoryFilter" class="chat-input" style="padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--text-primary);" onchange="filterMemories()">
+            <option value="">All Categories</option>
+            <option value="reminder">Reminders</option>
+            <option value="fact">Facts</option>
+            <option value="preference">Preferences</option>
+            <option value="entity">Entities</option>
+          </select>
+        </div>
         <div class="memory-add-form">
           <div style="display: flex; gap: 8px; align-items: flex-end;">
             <div style="flex: 1;">
