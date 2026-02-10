@@ -2,14 +2,20 @@ let memories = [];
 let editingMemory = null;
 
 function openMemoryModal() {
-  document.getElementById('memoryModal').classList.add('show');
-  loadMemories();
+  const modal = document.getElementById('memoryModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    loadMemories();
+  }
 }
 
 function closeMemoryModal() {
-  document.getElementById('memoryModal').classList.remove('show');
-  editingMemory = null;
-  resetMemoryForm();
+  const modal = document.getElementById('memoryModal');
+  if (modal) {
+    modal.style.display = 'none';
+    editingMemory = null;
+    resetMemoryForm();
+  }
 }
 
 async function loadMemories() {
@@ -161,8 +167,11 @@ function resetMemoryForm() {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.getElementById('memoryModal').classList.contains('show')) {
-    closeMemoryModal();
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('memoryModal');
+    if (modal && modal.style.display === 'flex') {
+      closeMemoryModal();
+    }
   }
 });
 
