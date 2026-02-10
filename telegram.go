@@ -126,6 +126,8 @@ func handleTelegramMessage(message *tgbotapi.Message) {
 	}
 
 	sessionID := getTelegramSession(userID)
+
+	sendTypingIndicator(chatID)
 	response := generateResponseForSession(sessionID, message.Text)
 
 	sendTelegramMessage(chatID, response)
@@ -518,4 +520,12 @@ func StopTelegramBot() {
 		telegramCancel()
 	}
 	log.Println("Telegram bot stopped")
+}
+
+func sendTypingIndicator(chatID int64) {
+	action := tgbotapi.NewChatAction(chatID, "typing")
+	_, err := telegramBot.Send(action)
+	if err != nil {
+		log.Printf("Error sending typing indicator: %v", err)
+	}
 }
