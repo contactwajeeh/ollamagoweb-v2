@@ -1,4 +1,5 @@
 let memories = [];
+let filteredMemories = [];
 let editingMemory = null;
 
 function openMemoryModal() {
@@ -32,11 +33,12 @@ async function loadMemories() {
 
     const data = await response.json();
     memories = Array.isArray(data) ? data : [];
-    renderMemories();
+    filterMemories();
   } catch (error) {
     console.error('Error loading memories:', error);
     container.innerHTML = '<div class="loading-memories" style="padding: 20px; text-align: center; color: var(--color-error);">Failed to load memories</div>';
     memories = [];
+    filteredMemories = [];
     renderMemories();
   }
 }
@@ -44,14 +46,27 @@ async function loadMemories() {
 function renderMemories() {
   const container = document.getElementById('memoryListContainer');
 
-  if (!memories || !Array.isArray(memories) || memories.length === 0) {
-    container.innerHTML = `
-      <div class="memory-empty-state">
-        <div class="memory-empty-icon">🧠</div>
-        <div class="memory-empty-text">No memories stored yet</div>
-        <div class="memory-empty-hint">Add memories above to personalize your AI experience</div>
-      </div>
-    `;
+  if (!filteredMemories || !Array.isArray(filteredMemories) || filteredMemories.length === 0) {
+    const searchTerm = document.getElementById('memorySearchInput').value;
+    const categoryFilter = document.getElementById('memoryCategoryFilter').value;
+
+    if (searchTerm || categoryFilter) {
+      container.innerHTML = `
+        <div class="memory-empty-state">
+          <div class="memory-empty-icon">🔍</div>
+          <div class="memory-empty-text">No memories match your search</div>
+          <div class="memory-empty-hint">Try clearing the search or filters</div>
+        </div>
+      `;
+    } else {
+      container.innerHTML = `
+        <div class="memory-empty-state">
+          <div class="memory-empty-icon">🧠</div>
+          <div class="memory-empty-text">No memories stored yet</div>
+          <div class="memory-empty-hint">Add memories above to personalize your AI experience</div>
+        </div>
+      `;
+    }
     return;
   }
 
@@ -61,7 +76,7 @@ function renderMemories() {
     return div.innerHTML;
   });
 
-  container.innerHTML = memories.map(memory => `
+  container.innerHTML = filteredMemories.map(memory => `
     <div class="memory-item" data-key="${escapeHtml(memory.key)}">
       <div class="memory-item-content">
         <div class="memory-item-key">${escapeHtml(memory.key)}</div>
@@ -77,6 +92,24 @@ function renderMemories() {
       </div>
     </div>
   `).join('');
+}
+
+function filterMemories() {
+  const searchTerm = document.getElementById('memorySearchInput').value.toLowerCase();
+  const categoryFilter = document.getElementById('memoryCategoryFilter').value.toLowerCase();
+
+  filteredMemories = memories.filter(memory => {
+    const matchesSearch = !searchTerm ||
+      memory.key.toLowerCase().includes(searchTerm) ||
+      memory.value.toLowerCase().includes(searchTerm);
+
+    const matchesCategory = !categoryFilter ||
+      memory.category.toLowerCase() === categoryFilter;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  renderMemories();
 }
 
 async function addMemory() {
