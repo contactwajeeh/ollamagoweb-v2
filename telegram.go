@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -141,25 +141,34 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 		sessionID := createTelegramSession(userID)
 		msg := fmt.Sprintf(
 			"👋 Welcome to OllamaGoWeb Bot!\n\n"+
-				"Your session ID: `%s`\n\n"+
+				"Your session ID: %s\n\n"+
 				"Commands:\n"+
 				"/start - Start a new session\n"+
 				"/help - Show this help\n"+
 				"/memories - View your memories\n"+
 				"/clear - Clear conversation history\n"+
-				"/settings - Show your settings",
+				"/settings - Show your settings\n\n"+
+				"🔗 Session Linking:\n"+
+				"/link_session <id> <token> - Link Telegram to web session\n"+
+				"/unlink_session - Unlink from web session\n"+
+				"/session_info - Show session status",
 			sessionID,
 		)
 		sendTelegramMessage(chatID, msg)
 
 	case "help":
-		msg :=
-			"📖 Available Commands:\n\n" +
-				"/start - Start a new session\n" +
-				"/help - Show this help\n" +
-				"/memories - View your saved memories\n" +
-				"/clear - Clear current conversation\n" +
-				"/settings - Show your current settings"
+		msg := "📖 Available Commands:\n\n" +
+			"💬 Chat:\n" +
+			"  /start - Start a new session\n" +
+			"  /clear - Clear current conversation\n" +
+			"  /settings - Show your current settings\n\n" +
+			"🧠 Memory:\n" +
+			"  /memories - View your saved memories\n\n" +
+			"🔗 Session Linking:\n" +
+			"  /link_session <id> <token> - Link Telegram to web session\n" +
+			"  /unlink_session - Unlink from web session\n" +
+			"  /session_info - Show session status\n\n" +
+			"❓ Get link token from web: GET /api/session/link-token"
 		sendTelegramMessage(chatID, msg)
 
 	case "memories":
@@ -208,6 +217,102 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 		)
 		sendTelegramMessage(chatID, msg)
 
+	case "link_session":
+		if len(parts) < 3 {
+			sendTelegramMessage(chatID,
+				"❌ Usage: /link_session <session_id> <link_token>\n\n"+
+					"To get your link token:\n"+
+					"1. Visit web app: http://localhost:1102\n"+
+					"2. Open browser console (F12)\n"+
+					"3. Run: fetch('/api/session/link-token').then(r=>r.json()).then(console.log)\n"+
+					"4. Copy session_id and link_token")
+			return
+		}
+
+		sessionIDToLink := parts[1]
+		linkToken := parts[2]
+
+		var dbSessionID sql.NullString
+		var expiresAt time.Time
+		var usedAt sql.NullTime
+
+		err := db.QueryRow(`
+			SELECT session_id, expires_at, used_at
+			FROM session_link_tokens
+			WHERE token = ?
+		`, linkToken).Scan(&dbSessionID, &expiresAt, &usedAt)
+
+		if err != nil {
+			sendTelegramMessage(chatID, "❌ Invalid or expired link token. Please generate a new token on web.")
+			return
+		}
+
+		if dbSessionID.String != sessionIDToLink {
+			sendTelegramMessage(chatID, "❌ Session ID mismatch. Make sure you copied at correct session_id.")
+			return
+		}
+
+		if time.Now().After(expiresAt) {
+			sendTelegramMessage(chatID, "❌ Link token has expired (valid for 15 minutes). Please generate a new token.")
+			return
+		}
+
+		if usedAt.Valid {
+			sendTelegramMessage(chatID, "❌ This link token has already been used. Please generate a new token.")
+			return
+		}
+
+		var sessionExists int
+		err = db.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", sessionIDToLink).Scan(&sessionExists)
+		if err != nil || sessionExists == 0 {
+			sendTelegramMessage(chatID, "❌ Invalid session. Please check your session ID.")
+			return
+		}
+
+		_, err = db.Exec(`
+			INSERT OR REPLACE INTO telegram_users (telegram_user_id, session_id)
+			VALUES (?, ?)
+		`, userID, sessionIDToLink)
+
+		if err != nil {
+			sendTelegramMessage(chatID, "❌ Error linking session: "+err.Error())
+			return
+		}
+
+		_, err = db.Exec("UPDATE session_link_tokens SET used_at = CURRENT_TIMESTAMP WHERE token = ?", linkToken)
+		if err != nil {
+			log.Printf("Warning: Failed to mark link token as used: %v", err)
+		}
+
+		sendTelegramMessage(chatID, "✅ Session Linked Successfully!\n\n🔗 Session ID: "+sessionIDToLink+"\n\nYour Telegram and web chats will now share:\n• Memories\n• Chat history\n• Context\n\nUse /session_info to see details.")
+
+	case "unlink_session":
+		_, err := db.Exec("DELETE FROM telegram_users WHERE telegram_user_id = ?", userID)
+		if err != nil {
+			sendTelegramMessage(chatID, "❌ Error unlinking: "+err.Error())
+			return
+		}
+		sendTelegramMessage(chatID, "✅ Session Unlinked\n\nYour Telegram chats will now use a separate session. Memories and context will not be shared with web.")
+
+	case "session_info":
+		var linkedSessionID sql.NullString
+		var linkedAt sql.NullTime
+
+		err := db.QueryRow(`
+			SELECT session_id, linked_at FROM telegram_users WHERE telegram_user_id = ?
+		`, userID).Scan(&linkedSessionID, &linkedAt)
+
+		if err == sql.ErrNoRows {
+			currentSession := getTelegramSession(userID)
+			msg := fmt.Sprintf("📱 Session Info\n\nStatus: 🔓 Unlinked\n\nCurrent Session ID: %s\n\nTo link with web, use:\n/link_session <session_id> <token>\n\nGet your link token from:\nGET /api/session/link-token", currentSession)
+			sendTelegramMessage(chatID, msg)
+			return
+		}
+
+		msg := fmt.Sprintf("🔗 Linked Session Info\n\nStatus: ✅ Linked\nSession ID: %s\nLinked at: %s\n\nYour memories and context are shared with web.",
+			linkedSessionID.String, linkedAt.Time.Format("2006-01-02 15:04"))
+		sendTelegramMessage(chatID, msg)
+
 	default:
 		sendTelegramMessage(chatID, fmt.Sprintf("❓ Unknown command: /%s\n\nUse /help for available commands.", cmd))
 	}
@@ -224,6 +329,23 @@ func createTelegramSession(userID int64) string {
 }
 
 func getTelegramSession(userID int64) string {
+	var linkedSessionID string
+	var linkedAt sql.NullTime
+
+	err := db.QueryRow(`
+		SELECT session_id, linked_at FROM telegram_users WHERE telegram_user_id = ?
+	`, userID).Scan(&linkedSessionID, &linkedAt)
+
+	if err == nil && linkedSessionID != "" {
+		var exists int
+		if checkErr := db.QueryRow("SELECT COUNT(*) FROM sessions WHERE id = ?", linkedSessionID).Scan(&exists); checkErr == nil && exists > 0 {
+			log.Printf("Using linked session for Telegram user %d: %s (linked at %s)",
+				userID, linkedSessionID, linkedAt.Time.Format("2006-01-02 15:04"))
+			return linkedSessionID
+		}
+		log.Printf("Linked session %s for user %d no longer exists, using Telegram-only session", linkedSessionID, userID)
+	}
+
 	telegramMutex.RLock()
 	defer telegramMutex.RUnlock()
 
@@ -248,82 +370,28 @@ func generateResponseForSession(sessionID, userMessage string) string {
 		return fmt.Sprintf("❌ Error getting chat: %v", err)
 	}
 
-	wr := newResponseWriter()
-	wr2 := newResponseWriter()
+	wr2 := NewStringResponseWriter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	extractionPrompt := fmt.Sprintf(`You are a memory extraction assistant. Analyze the following user message and extract any important information that should be remembered.
-
-User message: "%s"
-
-Extract memories in these categories:
-- reminder: Appointments, meetings, tasks, deadlines, things to remember
-- fact: Personal information, preferences, important details about user
-- preference: How the user likes things done, communication style, formatting preferences
-- entity: People, organizations, locations mentioned
-
-For each memory you find, create a JSON object with these exact fields:
-- key: a short unique identifier (use underscores, e.g., "reminder_meeting_ram_5pm")
-- value: full information to remember (e.g., "Meeting with Ram at 5 PM EST")
-- category: one of: reminder, fact, preference, entity
-- confidence: a number from 70-100 (90-100 for explicit statements, 70-89 for implied information)
-
-Return your response as a JSON array containing all the memories you found.
-
-Examples:
-Input: "Remind me about my meeting with Ram at 5 PM EST"
-Output: [{"key":"reminder_meeting_ram_5pm","value":"Meeting with Ram at 5 PM EST","category":"reminder","confidence":95}]
-
-Input: "My name is John and I prefer concise responses"
-Output: [{"key":"name","value":"John","category":"fact","confidence":95},{"key":"response_style","value":"concise","category":"preference","confidence":90}]
-
-If no memories found, return an empty array: []
-
-Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
-
 	if IsMemoryEnabled(db) {
-		log.Printf("Extracting memories for user message: %s", userMessage)
-		provider.Generate(ctx, nil, extractionPrompt, "You are a JSON extraction assistant. Always respond with valid JSON arrays only.", wr)
+		ExtractMemoriesWithLLM(db, sessionID, userMessage, provider, nil)
+	}
 
-		response := strings.TrimSpace(wr.String())
-		log.Printf("Memory extraction response (first 200 chars): %s", truncateString(response, 200))
-
-		cleanedResponse := strings.TrimSpace(response)
-		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```json")
-		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```")
-		cleanedResponse = strings.TrimSpace(cleanedResponse)
-		cleanedResponse = strings.TrimSuffix(cleanedResponse, "```")
-		cleanedResponse = strings.TrimSpace(cleanedResponse)
-
-		startIdx := strings.Index(cleanedResponse, "[")
-		endIdx := strings.LastIndex(cleanedResponse, "]")
-		if startIdx != -1 && endIdx != -1 && startIdx < endIdx {
-			jsonStr := cleanedResponse[startIdx : endIdx+1]
-			var extracted []ExtractedMemory
-			if err := json.Unmarshal([]byte(jsonStr), &extracted); err == nil {
-				for _, mem := range extracted {
-					if mem.Key != "" && mem.Value != "" {
-						category := mem.Category
-						if category == "" {
-							category = "fact"
-						}
-						confidence := mem.Confidence
-						if confidence <= 0 {
-							confidence = 80
-						}
-						if err := SetMemory(db, sessionID, mem.Key, mem.Value, category, confidence); err != nil {
-							log.Printf("Error storing extracted memory: %v", err)
-						} else {
-							log.Printf("Extracted memory: [%s] %s = %s", mem.Category, mem.Key, mem.Value)
-						}
-					}
-				}
-			}
-		}
+	var chatSummary sql.NullString
+	err = db.QueryRow("SELECT summary FROM chats WHERE id = ?", chatID).Scan(&chatSummary)
+	if err != nil {
+		log.Printf("Error fetching chat summary for Telegram session %s: %v", sessionID, err)
 	}
 
 	var history []api.Message
+
+	if chatSummary.String != "" {
+		history = append(history, api.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("Here is a summary of earlier conversation:\n%s", chatSummary.String),
+		})
+	}
 
 	if IsMemoryEnabled(db) {
 		memories, _ := GetMemories(db, sessionID)
@@ -339,9 +407,8 @@ Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
 	rows, err := db.Query(`
 		SELECT role, content
 		FROM messages
-		WHERE chat_id = ?
-		ORDER BY created_at DESC
-		LIMIT 10
+		WHERE chat_id = ? AND is_summarized = 0 AND role IN ('user', 'assistant')
+		ORDER BY id ASC
 	`, chatID)
 	if err == nil {
 		defer rows.Close()
@@ -355,26 +422,30 @@ Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
 		}
 	}
 
-	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
-		history[i], history[j] = history[j], history[i]
+	var systemPrompt string
+	if chatID > 0 {
+		db.QueryRow("SELECT COALESCE(system_prompt, '') FROM chats WHERE id = ?", chatID).Scan(&systemPrompt)
 	}
 
-	history = append(history, api.Message{
-		Role:    "user",
-		Content: userMessage,
-	})
+	log.Printf("Telegram sending %d messages to provider (systemPrompt='%s')", len(history), truncateString(systemPrompt, 50))
 
-	log.Printf("Sending %d history messages to provider for generation", len(history))
+	for i, msg := range history {
+		log.Printf("  [%d] %s: %s", i, msg.Role, truncateString(msg.Content, 100))
+	}
 
-	if err := provider.Generate(ctx, history, "", "", wr2); err != nil {
+	if err := provider.Generate(ctx, history, userMessage, systemPrompt, wr2); err != nil {
 		log.Printf("Error generating Telegram response: %v", err)
 		return "❌ Error generating response. Please try again."
 	}
 
 	response := strings.TrimSpace(wr2.String())
-	log.Printf("Telegram LLM response (first 300 chars): %s", truncateString(response, 300))
+
+	if idx := strings.Index(response, "__ANALYTICS__"); idx != -1 {
+		response = strings.TrimSpace(response[:idx])
+	}
 
 	aiResponse := response
+	log.Printf("Telegram LLM response (first 300 chars): %s", truncateString(response, 300))
 
 	if _, err := db.Exec(`
 		INSERT INTO messages (chat_id, role, content, model_name)
@@ -391,6 +462,10 @@ Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
 	}
 
 	db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
+
+	if chatID > 0 {
+		MaybeTriggerSummarization(db, chatID)
+	}
 
 	return aiResponse
 }
@@ -432,7 +507,6 @@ func getOrCreateChatForSession(sessionID string) (int64, error) {
 
 func sendTelegramMessage(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
 
 	if _, err := telegramBot.Send(msg); err != nil {
 		log.Printf("Error sending Telegram message: %v", err)
