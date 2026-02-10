@@ -202,6 +202,8 @@ function notify(message, type = 'info', duration = 3000) {
   }, duration);
 }
 
+window.notify = notify;
+
 notify.error = (msg) => notify(msg, 'error');
 notify.success = (msg) => notify(msg, 'success');
 

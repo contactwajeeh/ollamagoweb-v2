@@ -18,18 +18,27 @@ async function loadMemories() {
 
   try {
     const response = await fetch('/api/memories');
-    memories = await response.json();
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    memories = Array.isArray(data) ? data : [];
     renderMemories();
   } catch (error) {
-    container.innerHTML = '<div class="loading-memories" style="padding: 20px; text-align: center; color: var(--color-error);">Failed to load memories</div>';
     console.error('Error loading memories:', error);
+    container.innerHTML = '<div class="loading-memories" style="padding: 20px; text-align: center; color: var(--color-error);">Failed to load memories</div>';
+    memories = [];
+    renderMemories();
   }
 }
 
 function renderMemories() {
   const container = document.getElementById('memoryListContainer');
 
-  if (memories.length === 0) {
+  if (!memories || !Array.isArray(memories) || memories.length === 0) {
     container.innerHTML = `
       <div class="memory-empty-state">
         <div class="memory-empty-icon">🧠</div>
@@ -39,6 +48,12 @@ function renderMemories() {
     `;
     return;
   }
+
+  const escapeHtml = window.escapeHtml || ((text) => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  });
 
   container.innerHTML = memories.map(memory => `
     <div class="memory-item" data-key="${escapeHtml(memory.key)}">
@@ -94,6 +109,8 @@ async function addMemory() {
 }
 
 function editMemory(key) {
+  if (!memories || !Array.isArray(memories)) return;
+
   const memory = memories.find(m => m.key === key);
   if (!memory) return;
 
