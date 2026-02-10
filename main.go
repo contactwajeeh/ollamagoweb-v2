@@ -355,39 +355,41 @@ func run(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Inject User Memories
+	// 3. Inject User Memories (only if enabled)
 	sessionID := getSessionIDFromRequest(r)
-	memories, err := GetMemories(db, sessionID)
-	if err != nil {
-		log.Println("Error fetching memories:", err)
-	} else if len(memories) > 0 {
-		memoryPrompt := FormatMemoriesForPrompt(memories)
-		memoryMsg := api.Message{
-			Role:    "system",
-			Content: fmt.Sprintf("You have access to the following information about this user:\n%s\nUse this information to personalize your responses.", memoryPrompt),
-		}
-		history = append([]api.Message{memoryMsg}, history...)
-	}
-
-	// 4. Check if user is asking about reminders/memories
-	if strings.Contains(strings.ToLower(prompt.Input), "reminder") ||
-		strings.Contains(strings.ToLower(prompt.Input), "show me") ||
-		strings.Contains(strings.ToLower(prompt.Input), "what do you know") ||
-		strings.Contains(strings.ToLower(prompt.Input), "my meetings") {
-		searchResults, err := SearchMemories(db, sessionID, "reminder")
-		if err == nil && len(searchResults) > 0 {
-			var reminderList strings.Builder
-			reminderList.WriteString("\n=== USER'S REMINDERS ===\n")
-			for _, mem := range searchResults {
-				reminderList.WriteString(fmt.Sprintf("- %s\n", mem.Value))
-			}
-			reminderList.WriteString("=== END REMINDERS ===\n")
-
-			reminderContextMsg := api.Message{
+	if IsMemoryEnabled(db) {
+		memories, err := GetMemories(db, sessionID)
+		if err != nil {
+			log.Println("Error fetching memories:", err)
+		} else if len(memories) > 0 {
+			memoryPrompt := FormatMemoriesForPrompt(memories)
+			memoryMsg := api.Message{
 				Role:    "system",
-				Content: reminderList.String(),
+				Content: fmt.Sprintf("You have access to the following information about this user:\n%s\nUse this information to personalize your responses.", memoryPrompt),
 			}
-			history = append([]api.Message{reminderContextMsg}, history...)
+			history = append([]api.Message{memoryMsg}, history...)
+		}
+
+		// 4. Check if user is asking about reminders/memories
+		if strings.Contains(strings.ToLower(prompt.Input), "reminder") ||
+			strings.Contains(strings.ToLower(prompt.Input), "show me") ||
+			strings.Contains(strings.ToLower(prompt.Input), "what do you know") ||
+			strings.Contains(strings.ToLower(prompt.Input), "my meetings") {
+			searchResults, err := SearchMemories(db, sessionID, "reminder")
+			if err == nil && len(searchResults) > 0 {
+				var reminderList strings.Builder
+				reminderList.WriteString("\n=== USER'S REMINDERS ===\n")
+				for _, mem := range searchResults {
+					reminderList.WriteString(fmt.Sprintf("- %s\n", mem.Value))
+				}
+				reminderList.WriteString("=== END REMINDERS ===\n")
+
+				reminderContextMsg := api.Message{
+					Role:    "system",
+					Content: reminderList.String(),
+				}
+				history = append([]api.Message{reminderContextMsg}, history...)
+			}
 		}
 	}
 
@@ -405,15 +407,18 @@ func run(w http.ResponseWriter, r *http.Request) {
 		MaybeTriggerSummarization(db, prompt.ChatID)
 	}
 
-	// Extract and store simple memories from user input (pattern-based)
-	ExtractAndStoreMemory(db, sessionID, prompt.Input)
+	// Extract and store memories (only if enabled)
+	if IsMemoryEnabled(db) {
+		// Extract simple memories from user input (pattern-based)
+		ExtractAndStoreMemory(db, sessionID, prompt.Input)
 
-	// Extract memories using LLM (autonomous extraction)
-	// Only do this for non-empty messages to avoid unnecessary API calls
-	if strings.TrimSpace(prompt.Input) != "" {
-		provider, _, err := GetActiveProvider(db)
-		if err == nil {
-			ExtractMemoriesWithLLM(db, sessionID, prompt.Input, provider, history)
+		// Extract memories using LLM (autonomous extraction)
+		// Only do this for non-empty messages to avoid unnecessary API calls
+		if strings.TrimSpace(prompt.Input) != "" {
+			provider, _, err := GetActiveProvider(db)
+			if err == nil {
+				ExtractMemoriesWithLLM(db, sessionID, prompt.Input, provider, history)
+			}
 		}
 	}
 }

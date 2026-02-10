@@ -274,3 +274,19 @@ func SearchMemories(db *sql.DB, sessionID, query string) ([]Memory, error) {
 	}
 	return memories, nil
 }
+
+func IsMemoryEnabled(db *sql.DB) bool {
+	var value string
+	err := db.QueryRow("SELECT value FROM settings WHERE key = ?", "memory_enabled").Scan(&value)
+	if err == sql.ErrNoRows {
+		// Default to enabled
+		return true
+	}
+	if err != nil {
+		log.Printf("Error checking memory_enabled setting: %v", err)
+		return true
+	}
+
+	// Check if enabled (1, true, yes)
+	return value == "1" || strings.ToLower(value) == "true" || strings.ToLower(value) == "yes"
+}
