@@ -19,8 +19,8 @@ var (
 	telegramCtx      context.Context
 	telegramCancel   context.CancelFunc
 	telegramSessions = make(map[int64]string)
-	telegramMutex   sync.RWMutex
-	allowedUsers   []int64
+	telegramMutex    sync.RWMutex
+	allowedUsers     []int64
 )
 
 func InitTelegramBot() {
@@ -323,11 +323,6 @@ Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
 		}
 	}
 
-		if len(extracted) == 0 {
-			log.Printf("No memories extracted from message")
-		}
-	}
-
 	var history []api.Message
 
 	if IsMemoryEnabled(db) {
@@ -348,19 +343,19 @@ Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
 		ORDER BY created_at DESC
 		LIMIT 10
 	`, chatID)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var role, content string
-				rows.Scan(&role, &content)
-				history = append(history, api.Message{
-					Role:    role,
-					Content: content,
-				})
-			}
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var role, content string
+			rows.Scan(&role, &content)
+			history = append(history, api.Message{
+				Role:    role,
+				Content: content,
+			})
 		}
+	}
 
-	for i, j := 0; len(history)-1; i < j; i, j = i+1, j-1 {
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
 	}
 

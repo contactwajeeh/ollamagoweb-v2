@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -160,10 +163,10 @@ Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
 
 	startIdx := strings.Index(response, "[")
 	endIdx := strings.LastIndex(response, "]")
+	var extracted []ExtractedMemory
 	if startIdx != -1 && endIdx != -1 && startIdx < endIdx {
 		jsonStr := response[startIdx : endIdx+1]
-		var extracted []ExtractedMemory
-		if err := json.Unmarshal([]byte(jsonStr), &extracted); err != nil {
+		if err := json.Unmarshal([]byte(jsonStr), &extracted); err == nil {
 			for _, mem := range extracted {
 				if mem.Key != "" && mem.Value != "" {
 					category := mem.Category
