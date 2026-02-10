@@ -18,9 +18,9 @@ var (
 	telegramBot      *tgbotapi.BotAPI
 	telegramCtx      context.Context
 	telegramCancel   context.CancelFunc
-	telegramSessions = make(map[int64]string) // user_id -> session_id
-	telegramMutex    sync.RWMutex
-	allowedUsers     []int64 // Telegram allowlist
+	telegramSessions = make(map[int64]string)
+	telegramMutex   sync.RWMutex
+	allowedUsers   []int64
 )
 
 func InitTelegramBot() {
@@ -47,11 +47,16 @@ func InitTelegramBot() {
 	updates := telegramBot.GetUpdatesChan(u)
 
 	go func() {
-		for update := range updates {
-			if update.Message == nil {
+		for {
+			update, ok := <-updates
+			if !ok {
+				break
+			}
+			message := update.Message
+			if message == nil {
 				continue
 			}
-			go handleTelegramMessage(update.Message)
+			go handleTelegramMessage(message)
 		}
 	}()
 
@@ -61,7 +66,7 @@ func InitTelegramBot() {
 func initAllowedUsers() {
 	allowedUsersEnv := os.Getenv("TELEGRAM_ALLOWED_USERS")
 	if allowedUsersEnv == "" {
-		allowedUsers = []int64{} // Empty allowlist means all users are allowed
+		allowedUsers = []int64{}
 		return
 	}
 
@@ -109,7 +114,6 @@ func handleTelegramMessage(message *tgbotapi.Message) {
 
 	log.Printf("Telegram message from user %d: %s", userID, message.Text)
 
-	// Check if user is allowed
 	if !isUserAllowed(userID) {
 		log.Printf("Unauthorized access attempt from user %d", userID)
 		sendTelegramMessage(chatID, "🚫 Access Denied: You are not authorized to use this bot.")
@@ -120,8 +124,6 @@ func handleTelegramMessage(message *tgbotapi.Message) {
 		handleTelegramCommand(message, userID, chatID)
 		return
 	}
-
-	sendTyping(chatID)
 
 	sessionID := getTelegramSession(userID)
 	response := generateResponseForSession(sessionID, message.Text)
@@ -238,11 +240,12 @@ func generateResponseForSession(sessionID, userMessage string) string {
 		return "❌ Error: No active provider configured in web settings."
 	}
 
-	log.Printf("Generating response for Telegram session %s", sessionID)
+	log.Printf("Generating response for Telegram session %s with provider: %s, model: %s", sessionID, config.Name, config.Model)
 
 	chatID, err := getOrCreateChatForSession(sessionID)
 	if err != nil {
-		return fmt.Sprintf("❌ Error: %v", err)
+		log.Printf("Error getting/creating chat for session: %v", err)
+		return fmt.Sprintf("❌ Error getting chat: %v", err)
 	}
 
 	wr := newResponseWriter()
@@ -250,9 +253,7 @@ func generateResponseForSession(sessionID, userMessage string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Step 1: Extract memories (if enabled)
-	if IsMemoryEnabled(db) {
-		extractionPrompt := fmt.Sprintf(`You are a memory extraction assistant. Analyze the following user message and extract any important information that should be remembered.
+	extractionPrompt := fmt.Sprintf(`You are a memory extraction assistant. Analyze the following user message and extract any important information that should be remembered.
 
 User message: "%s"
 
@@ -262,36 +263,43 @@ Extract memories in these categories:
 - preference: How the user likes things done, communication style, formatting preferences
 - entity: People, organizations, locations mentioned
 
-Return a JSON array of memories with this structure:
-[
-  {
-    "key": "unique_identifier (e.g., reminder_meeting_ram_5pm)",
-    "value": "detailed description (e.g., Meeting with Ram at 5 PM EST)",
-    "category": "category_name",
-    "confidence": 85
-  }
-]
+For each memory you find, create a JSON object with these exact fields:
+- key: a short unique identifier (use underscores, e.g., "reminder_meeting_ram_5pm")
+- value: full information to remember (e.g., "Meeting with Ram at 5 PM EST")
+- category: one of: reminder, fact, preference, entity
+- confidence: a number from 70-100 (90-100 for explicit statements, 70-89 for implied information)
 
-Guidelines:
-- Only extract if information is genuinely useful to remember
-- For reminders, include date/time/location if mentioned
-- Create descriptive but concise keys
-- Confidence 90-100 for explicit statements, 70-89 for implied information
-- If no memories to extract, return empty array []
+Return your response as a JSON array containing all the memories you found.
 
-Return ONLY a JSON array, no markdown code blocks, no other text.`, userMessage)
+Examples:
+Input: "Remind me about my meeting with Ram at 5 PM EST"
+Output: [{"key":"reminder_meeting_ram_5pm","value":"Meeting with Ram at 5 PM EST","category":"reminder","confidence":95}]
 
+Input: "My name is John and I prefer concise responses"
+Output: [{"key":"name","value":"John","category":"fact","confidence":95},{"key":"response_style","value":"concise","category":"preference","confidence":90}]
+
+If no memories found, return an empty array: []
+
+Respond ONLY with a JSON array. No markdown, no explanation.`, userMessage)
+
+	if IsMemoryEnabled(db) {
+		log.Printf("Extracting memories for user message: %s", userMessage)
 		provider.Generate(ctx, nil, extractionPrompt, "You are a JSON extraction assistant. Always respond with valid JSON arrays only.", wr)
 
 		response := strings.TrimSpace(wr.String())
-		response = strings.TrimPrefix(response, "```json")
-		response = strings.TrimPrefix(response, "```")
-		response = strings.TrimSpace(response)
+		log.Printf("Memory extraction response (first 200 chars): %s", truncateString(response, 200))
 
-		startIdx := strings.Index(response, "[")
-		endIdx := strings.LastIndex(response, "]")
+		cleanedResponse := strings.TrimSpace(response)
+		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```json")
+		cleanedResponse = strings.TrimPrefix(cleanedResponse, "```")
+		cleanedResponse = strings.TrimSpace(cleanedResponse)
+		cleanedResponse = strings.TrimSuffix(cleanedResponse, "```")
+		cleanedResponse = strings.TrimSpace(cleanedResponse)
+
+		startIdx := strings.Index(cleanedResponse, "[")
+		endIdx := strings.LastIndex(cleanedResponse, "]")
 		if startIdx != -1 && endIdx != -1 && startIdx < endIdx {
-			jsonStr := response[startIdx : endIdx+1]
+			jsonStr := cleanedResponse[startIdx : endIdx+1]
 			var extracted []ExtractedMemory
 			if err := json.Unmarshal([]byte(jsonStr), &extracted); err == nil {
 				for _, mem := range extracted {
@@ -304,14 +312,22 @@ Return ONLY a JSON array, no markdown code blocks, no other text.`, userMessage)
 						if confidence <= 0 {
 							confidence = 80
 						}
-						SetMemory(db, sessionID, mem.Key, mem.Value, category, confidence)
+						if err := SetMemory(db, sessionID, mem.Key, mem.Value, category, confidence); err != nil {
+							log.Printf("Error storing extracted memory: %v", err)
+						} else {
+							log.Printf("Extracted memory: [%s] %s = %s", mem.Category, mem.Key, mem.Value)
+						}
 					}
 				}
 			}
 		}
 	}
 
-	// Step 2: Get conversation history and memories
+		if len(extracted) == 0 {
+			log.Printf("No memories extracted from message")
+		}
+	}
+
 	var history []api.Message
 
 	if IsMemoryEnabled(db) {
@@ -325,7 +341,6 @@ Return ONLY a JSON array, no markdown code blocks, no other text.`, userMessage)
 		}
 	}
 
-	// Get last few messages from chat
 	rows, err := db.Query(`
 		SELECT role, content
 		FROM messages
@@ -333,20 +348,19 @@ Return ONLY a JSON array, no markdown code blocks, no other text.`, userMessage)
 		ORDER BY created_at DESC
 		LIMIT 10
 	`, chatID)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var role, content string
-			rows.Scan(&role, &content)
-			history = append(history, api.Message{
-				Role:    role,
-				Content: content,
-			})
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var role, content string
+				rows.Scan(&role, &content)
+				history = append(history, api.Message{
+					Role:    role,
+					Content: content,
+				})
+			}
 		}
-	}
 
-	// Reverse history for correct order
-	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+	for i, j := 0; len(history)-1; i < j; i, j = i+1, j-1 {
 		history[i], history[j] = history[j], history[i]
 	}
 
@@ -355,15 +369,18 @@ Return ONLY a JSON array, no markdown code blocks, no other text.`, userMessage)
 		Content: userMessage,
 	})
 
-	// Step 3: Generate response
+	log.Printf("Sending %d history messages to provider for generation", len(history))
+
 	if err := provider.Generate(ctx, history, "", "", wr2); err != nil {
 		log.Printf("Error generating Telegram response: %v", err)
 		return "❌ Error generating response. Please try again."
 	}
 
 	response := strings.TrimSpace(wr2.String())
+	log.Printf("Telegram LLM response (first 300 chars): %s", truncateString(response, 300))
 
-	// Save user message to database
+	aiResponse := response
+
 	if _, err := db.Exec(`
 		INSERT INTO messages (chat_id, role, content, model_name)
 		VALUES (?, 'user', ?, ?)
@@ -371,22 +388,19 @@ Return ONLY a JSON array, no markdown code blocks, no other text.`, userMessage)
 		log.Printf("Error saving Telegram message to database: %v", err)
 	}
 
-	// Save AI response to database
 	if _, err := db.Exec(`
 		INSERT INTO messages (chat_id, role, content, model_name)
 		VALUES (?, 'assistant', ?, ?)
-	`, chatID, response, config.Model); err != nil {
+	`, chatID, aiResponse, config.Model); err != nil {
 		log.Printf("Error saving Telegram response to database: %v", err)
 	}
 
-	// Update chat timestamp
 	db.Exec("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", chatID)
 
-	return response
+	return aiResponse
 }
 
 func getOrCreateChatForSession(sessionID string) (int64, error) {
-	// Find existing chat for this session
 	var chatID int64
 	err := db.QueryRow("SELECT id FROM chats WHERE title = ?", sessionID).Scan(&chatID)
 
@@ -398,7 +412,6 @@ func getOrCreateChatForSession(sessionID string) (int64, error) {
 		return 0, err
 	}
 
-	// Create new chat for this session
 	_, config, err := GetActiveProvider(db)
 	if err != nil {
 		return 0, err
@@ -428,13 +441,6 @@ func sendTelegramMessage(chatID int64, text string) {
 
 	if _, err := telegramBot.Send(msg); err != nil {
 		log.Printf("Error sending Telegram message: %v", err)
-	}
-}
-
-func sendTyping(chatID int64) {
-	action := tgbotapi.NewChatAction(chatID, "typing")
-	if _, err := telegramBot.Send(action); err != nil {
-		log.Printf("Error sending typing action: %v", err)
 	}
 }
 
