@@ -127,14 +127,29 @@ async function addMemory() {
   }
 
   try {
-    const response = await fetch('/api/memories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value, category })
-    });
+    let response;
+    let successMessage;
+
+    if (editingMemory) {
+      // Update existing memory - the key is disabled so it stays the same
+      response = await fetch('/api/memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: editingMemory, value, category })
+      });
+      successMessage = 'Memory updated successfully';
+    } else {
+      // Add new memory
+      response = await fetch('/api/memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value, category })
+      });
+      successMessage = 'Memory added successfully';
+    }
 
     if (response.ok) {
-      notify(editingMemory ? 'Memory updated successfully' : 'Memory added successfully', 'success');
+      notify(successMessage, 'success');
       resetMemoryForm();
       loadMemories();
     } else {
@@ -219,3 +234,36 @@ document.getElementById('memoryValueInput').addEventListener('keypress', (e) => 
     addMemory();
   }
 });
+
+async function testMemoryExtraction() {
+  const testMessage = prompt('Enter a test message to extract memories from:\n\nExample: "Remind me about my meeting with Ram at 5 PM EST"');
+
+  if (!testMessage || !testMessage.trim()) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/memories/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: testMessage.trim() })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      notify('Memory extraction test completed! Check server logs for details.', 'success');
+      console.log('Extraction test result:', result);
+
+      // Reload memories to show any new ones
+      setTimeout(() => {
+        loadMemories();
+      }, 1000);
+    } else {
+      const error = await response.json();
+      notify(error.message || 'Extraction test failed', 'error');
+    }
+  } catch (error) {
+    notify('Failed to run extraction test', 'error');
+    console.error('Error testing extraction:', error);
+  }
+}
