@@ -2220,3 +2220,27 @@ code {
   padding: 16px 20px;
   border-top: 1px solid var(--border-color);
 }
+
+.memory-search {
+  margin-bottom: 12px;
+}
+
+#memorySearchInput,
+#memoryCategoryFilter {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+#memorySearchInput:focus,
+#memoryCategoryFilter:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
