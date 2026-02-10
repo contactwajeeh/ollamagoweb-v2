@@ -46,6 +46,11 @@ func main() {
 	InitAuth(authUser, authPass)
 	go CleanupSessions()
 
+	// Initialize Telegram bot (if configured)
+	initAllowedUsers()
+	InitTelegramBot()
+	defer StopTelegramBot()
+
 	// Initialize MCP client
 	mcp.InitMCPClient()
 
