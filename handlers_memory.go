@@ -135,3 +135,35 @@ func getSessionIDFromRequest(r *http.Request) string {
 	}
 	return "default"
 }
+
+func searchMemories(w http.ResponseWriter, r *http.Request) {
+	var sessionID string
+
+	if authEnabled {
+		sessionCookie, err := r.Cookie("session_id")
+		if err != nil {
+			if authEnabled {
+				http.Error(w, `{"error": true, "message": "Authentication required"}`, http.StatusUnauthorized)
+				return
+			}
+			sessionID = "default"
+		} else {
+			sessionID = sessionCookie.Value
+		}
+	} else {
+		sessionID = "default"
+	}
+
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		WriteError(w, http.StatusBadRequest, "Query parameter 'q' is required")
+		return
+	}
+
+	memories, err := SearchMemories(db, sessionID, query)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	WriteJSON(w, memories)
+}

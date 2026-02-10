@@ -125,6 +125,7 @@ func main() {
 	r.Get("/api/memories", getMemories)
 	r.Post("/api/memories", setMemory)
 	r.Delete("/api/memories", deleteMemory)
+	r.Get("/api/memories/search", searchMemories)
 
 	// Model switching
 	r.Post("/api/switch-model", switchModel)
@@ -367,6 +368,28 @@ func run(w http.ResponseWriter, r *http.Request) {
 		history = append([]api.Message{memoryMsg}, history...)
 	}
 
+	// 4. Check if user is asking about reminders/memories
+	if strings.Contains(strings.ToLower(prompt.Input), "reminder") ||
+		strings.Contains(strings.ToLower(prompt.Input), "show me") ||
+		strings.Contains(strings.ToLower(prompt.Input), "what do you know") ||
+		strings.Contains(strings.ToLower(prompt.Input), "my meetings") {
+		searchResults, err := SearchMemories(db, sessionID, "reminder")
+		if err == nil && len(searchResults) > 0 {
+			var reminderList strings.Builder
+			reminderList.WriteString("\n=== USER'S REMINDERS ===\n")
+			for _, mem := range searchResults {
+				reminderList.WriteString(fmt.Sprintf("- %s\n", mem.Value))
+			}
+			reminderList.WriteString("=== END REMINDERS ===\n")
+
+			reminderContextMsg := api.Message{
+				Role:    "system",
+				Content: reminderList.String(),
+			}
+			history = append([]api.Message{reminderContextMsg}, history...)
+		}
+	}
+
 	log.Printf("Sending %d history messages (context window) to provider", len(history))
 
 	ctx := r.Context()
@@ -381,8 +404,17 @@ func run(w http.ResponseWriter, r *http.Request) {
 		MaybeTriggerSummarization(db, prompt.ChatID)
 	}
 
-	// Extract and store memories from user input
+	// Extract and store simple memories from user input (pattern-based)
 	ExtractAndStoreMemory(db, sessionID, prompt.Input)
+
+	// Extract memories using LLM (autonomous extraction)
+	// Only do this for non-empty messages to avoid unnecessary API calls
+	if strings.TrimSpace(prompt.Input) != "" {
+		provider, _, err := GetActiveProvider(db)
+		if err == nil {
+			ExtractMemoriesWithLLM(db, sessionID, prompt.Input, provider, history)
+		}
+	}
 }
 
 // truncate shortens a string to maxLen characters
