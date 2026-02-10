@@ -110,6 +110,19 @@ func RunMigrations(db *sql.DB) {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 
+		// User memories table
+		`CREATE TABLE IF NOT EXISTS user_memories (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value TEXT NOT NULL,
+			category TEXT,
+			confidence INTEGER DEFAULT 100,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(session_id, key)
+		)`,
+
 		// Indexes
 		`CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active)`,
@@ -120,6 +133,8 @@ func RunMigrations(db *sql.DB) {
 		`CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(chat_id, role)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers(is_enabled)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_session ON user_memories(session_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_memory_category ON user_memories(category)`,
 	}
 
 	for _, migration := range migrations {

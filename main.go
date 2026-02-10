@@ -121,6 +121,11 @@ func main() {
 	r.Put("/api/messages/{id}", updateMessage)
 	r.Delete("/api/messages/{id}", deleteMessage)
 
+	// Memory API routes
+	r.Get("/api/memories", getMemories)
+	r.Post("/api/memories", setMemory)
+	r.Delete("/api/memories", deleteMemory)
+
 	// Model switching
 	r.Post("/api/switch-model", switchModel)
 
@@ -315,9 +320,9 @@ func run(w http.ResponseWriter, r *http.Request) {
 	if prompt.ChatID > 0 {
 		// Fetch unsummarized messages
 		rows, err := db.Query(`
-			SELECT role, content, model_name 
-			FROM messages 
-			WHERE chat_id = ? AND is_summarized = 0 
+			SELECT role, content, model_name
+			FROM messages
+			WHERE chat_id = ? AND is_summarized = 0
 			ORDER BY id ASC
 		`, prompt.ChatID)
 		if err != nil {
@@ -348,6 +353,20 @@ func run(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 3. Inject User Memories
+	sessionID := getSessionIDFromRequest(r)
+	memories, err := GetMemories(db, sessionID)
+	if err != nil {
+		log.Println("Error fetching memories:", err)
+	} else if len(memories) > 0 {
+		memoryPrompt := FormatMemoriesForPrompt(memories)
+		memoryMsg := api.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("You have access to the following information about this user:\n%s\nUse this information to personalize your responses.", memoryPrompt),
+		}
+		history = append([]api.Message{memoryMsg}, history...)
+	}
+
 	log.Printf("Sending %d history messages (context window) to provider", len(history))
 
 	ctx := r.Context()
@@ -361,6 +380,9 @@ func run(w http.ResponseWriter, r *http.Request) {
 	if prompt.ChatID > 0 {
 		MaybeTriggerSummarization(db, prompt.ChatID)
 	}
+
+	// Extract and store memories from user input
+	ExtractAndStoreMemory(db, sessionID, prompt.Input)
 }
 
 // truncate shortens a string to maxLen characters
