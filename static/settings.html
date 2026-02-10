@@ -434,6 +434,21 @@
         <div class="form-text">Required for /search command functionality.</div>
       </div>
     </div>
+
+    <!-- Memory Settings Section -->
+    <div class="settings-section">
+      <h3>🧠 Memory Settings</h3>
+      <p class="text-muted small mb-3">Enable AI memory extraction and storage. When disabled, no memories will be auto-extracted or used in conversations.</p>
+      <div>
+        <label class="form-label d-flex align-items-center gap-3">
+          <input type="checkbox" id="memory-enabled" class="form-check-input" onchange="toggleMemoryFeature()">
+          <span>Enable AI Memory</span>
+        </label>
+        <div class="form-text">
+          <small class="text-muted">When enabled, the AI will automatically extract and store reminders, preferences, and facts from your conversations.</small>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Add/Edit Provider Modal -->
