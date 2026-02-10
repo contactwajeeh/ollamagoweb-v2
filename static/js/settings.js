@@ -92,8 +92,53 @@ async function loadSettings() {
             const data = await braveRes.json();
             document.getElementById('brave-api-key').value = data.value;
         }
+
+        const memoryRes = await fetch('/api/settings/memory_enabled');
+        if (memoryRes.ok) {
+            const data = await memoryRes.json();
+            document.getElementById('memory-enabled').checked = data.value === '1' || data.value === 'true';
+        } else {
+            // Default to enabled if not set
+            document.getElementById('memory-enabled').checked = true;
+        }
     } catch (err) {
         console.error('Error loading settings:', err);
+    }
+}
+
+// Toggle memory feature
+async function toggleMemoryFeature() {
+    const checkbox = document.getElementById('memory-enabled');
+    const isEnabled = checkbox.checked;
+
+    try {
+        const res = await fetch('/api/settings/memory_enabled', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: isEnabled ? '1' : '0' })
+        });
+
+        if (res.ok) {
+            console.log('Memory feature', isEnabled ? 'enabled' : 'disabled');
+            // Show toast notification
+            const toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;padding:12px 20px;border-radius:8px;color:white;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);background:' + (isEnabled ? '#22c55e' : '#ef4444');
+            toast.textContent = 'Memory ' + (isEnabled ? 'enabled' : 'disabled');
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 2000);
+        } else {
+            // Revert checkbox on error
+            checkbox.checked = !isEnabled;
+            alert('Failed to update memory setting');
+        }
+    } catch (err) {
+        console.error('Error toggling memory feature:', err);
+        checkbox.checked = !isEnabled;
     }
 }
 

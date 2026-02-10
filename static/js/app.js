@@ -640,8 +640,27 @@ function toggleMcpAccordion(id) {
 }
 
 // Initialize on page load
+async function checkMemoryFeature() {
+  try {
+    const res = await fetch('/api/settings/memory_enabled');
+    if (res.ok) {
+      const data = await res.json();
+      const isEnabled = data.value === '1' || data.value === 'true';
+      const memoryBtn = document.getElementById('btnMemory');
+      if (memoryBtn) {
+        memoryBtn.style.display = isEnabled ? 'inline-block' : 'none';
+      }
+    }
+  } catch (e) {
+    console.warn('Could not check memory feature status:', e);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async function () {
   initTheme();
+
+  // Check memory feature enablement
+  await checkMemoryFeature();
 
   // Fetch CSRF token
   try {
