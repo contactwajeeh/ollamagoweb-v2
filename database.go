@@ -141,6 +141,16 @@ func RunMigrations(db *sql.DB) {
 			FOREIGN KEY (session_id) REFERENCES sessions(id)
 		)`,
 
+		// Open Skills cache table
+		`CREATE TABLE IF NOT EXISTS open_skills_cache (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			description TEXT,
+			content TEXT NOT NULL,
+			url TEXT,
+			fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+
 		// Indexes
 		`CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(is_active)`,

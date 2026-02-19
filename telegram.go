@@ -150,7 +150,8 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 				"/memories - View your memories\n"+
 				"/clear - Clear conversation history\n"+
 				"/settings - Show your settings\n"+
-				"/search <query> - Search the web\n\n"+
+				"/search <query> - Search the web\n"+
+				"/skills - List available skills\n\n"+
 				"🔗 Session Linking:\n"+
 				"/link_session <id> <token> - Link Telegram to web session\n"+
 				"/unlink_session - Unlink from web session\n"+
@@ -166,6 +167,9 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 			"  /clear - Clear current conversation\n" +
 			"  /settings - Show your current settings\n" +
 			"  /search <query> - Search the web for info\n\n" +
+			"📚 Skills:\n" +
+			"  /skills - List available Open Skills\n" +
+			"  /refresh_skills - Refresh skills from repository\n\n" +
 			"🧠 Memory:\n" +
 			"  /memories - View your saved memories\n\n" +
 			"🔗 Session Linking:\n" +
@@ -328,6 +332,39 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 		response := generateResponseForSession(sessionID, searchQuery)
 		sendTelegramMessage(chatID, response)
 
+	case "skills":
+		ctx := context.Background()
+		skills, err := GetCachedSkills(ctx)
+		if err != nil || len(skills) == 0 {
+			skills, err = RefreshSkillsCache(ctx)
+			if err != nil {
+				sendTelegramMessage(chatID, "❌ Failed to fetch skills. Please try again later.")
+				return
+			}
+		}
+
+		var sb strings.Builder
+		sb.WriteString("📚 Available Open Skills:\n\n")
+		for i, s := range skills {
+			if i >= 20 {
+				sb.WriteString(fmt.Sprintf("\n...and %d more skills", len(skills)-20))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("• %s\n  %s\n", s.Name, truncateString(s.Description, 50)))
+		}
+		sb.WriteString("\n💡 Just ask naturally and I'll use the right skill!")
+		sendTelegramMessage(chatID, sb.String())
+
+	case "refresh_skills":
+		sendTelegramMessage(chatID, "🔄 Refreshing skills from Open Skills repository...")
+		ctx := context.Background()
+		skills, err := RefreshSkillsCache(ctx)
+		if err != nil {
+			sendTelegramMessage(chatID, fmt.Sprintf("❌ Failed to refresh skills: %v", err))
+			return
+		}
+		sendTelegramMessage(chatID, fmt.Sprintf("✅ Refreshed %d skills!", len(skills)))
+
 	default:
 		sendTelegramMessage(chatID, fmt.Sprintf("❓ Unknown command: /%s\n\nUse /help for available commands.", cmd))
 	}
@@ -408,7 +445,6 @@ func generateResponseForSession(sessionID, userMessage string) string {
 		return fmt.Sprintf("❌ Error getting chat: %v", err)
 	}
 
-	wr2 := NewStringResponseWriter()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -471,18 +507,56 @@ func generateResponseForSession(sessionID, userMessage string) string {
 		log.Printf("  [%d] %s: %s", i, msg.Role, truncateString(msg.Content, 100))
 	}
 
-	if err := provider.Generate(ctx, history, enrichedPrompt, systemPrompt, wr2); err != nil {
+	tools, err := GetAllEnabledMCPTools(ctx)
+	if err != nil {
+		log.Printf("Warning: Failed to get MCP tools: %v", err)
+		tools = nil
+	}
+
+	skills, err := GetCachedSkills(ctx)
+	if err != nil {
+		log.Printf("Warning: Failed to get Open Skills: %v", err)
+		skills = nil
+	}
+
+	var toolExecutionMessages []string
+	callback := func(toolName string, status string) {
+		var msg string
+		switch status {
+		case "calling":
+			msg = fmt.Sprintf("🔧 Calling tool: %s...", toolName)
+		case "completed":
+			msg = fmt.Sprintf("✅ Tool completed: %s", toolName)
+		case "error":
+			msg = fmt.Sprintf("❌ Tool error: %s", toolName)
+		}
+		toolExecutionMessages = append(toolExecutionMessages, msg)
+		log.Printf("Telegram tool execution: %s", msg)
+	}
+
+	var response string
+	if len(tools) > 0 || len(skills) > 0 {
+		log.Printf("Telegram: Running agentic loop with %d tools and %d skills", len(tools), len(skills))
+		response, err = RunAgenticLoopWithSkills(ctx, provider, tools, skills, history, enrichedPrompt, systemPrompt, callback)
+	} else {
+		response, err = provider.GenerateNonStreaming(ctx, history, enrichedPrompt, systemPrompt)
+	}
+
+	if err != nil {
 		log.Printf("Error generating Telegram response: %v", err)
 		return "❌ Error generating response. Please try again."
 	}
 
-	response := strings.TrimSpace(wr2.String())
+	response = strings.TrimSpace(response)
 
 	if idx := strings.Index(response, "__ANALYTICS__"); idx != -1 {
 		response = strings.TrimSpace(response[:idx])
 	}
 
 	aiResponse := response
+	if len(toolExecutionMessages) > 0 {
+		aiResponse = strings.Join(toolExecutionMessages, "\n") + "\n\n" + aiResponse
+	}
 	log.Printf("Telegram LLM response (first 300 chars): %s", truncateString(response, 300))
 
 	if _, err := db.Exec(`

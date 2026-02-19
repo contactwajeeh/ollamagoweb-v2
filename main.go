@@ -425,10 +425,37 @@ func run(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Sending %d history messages (context window) to provider", len(history))
 
 	ctx := r.Context()
-	if err := provider.Generate(ctx, history, enrichedPrompt, systemPrompt, w); err != nil {
-		log.Println("Generation error:", err)
-		// Don't write error if we've already started writing
-		// The error will be logged server-side
+
+	tools, err := GetAllEnabledMCPTools(ctx)
+	if err != nil {
+		log.Printf("Warning: Failed to get MCP tools: %v", err)
+		tools = nil
+	}
+
+	skills, err := GetCachedSkills(ctx)
+	if err != nil {
+		log.Printf("Warning: Failed to get Open Skills: %v", err)
+		skills = nil
+	}
+
+	if len(tools) > 0 || len(skills) > 0 {
+		log.Printf("Web: Running agentic loop with %d tools and %d skills", len(tools), len(skills))
+		response, err := RunAgenticLoopWithSkills(ctx, provider, tools, skills, history, enrichedPrompt, systemPrompt, nil)
+		if err != nil {
+			log.Println("Generation error:", err)
+			http.Error(w, "Generation error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(response))
+
+		if idx := strings.Index(response, "__ANALYTICS__"); idx != -1 {
+			response = strings.TrimSpace(response[:idx])
+		}
+	} else {
+		if err := provider.Generate(ctx, history, enrichedPrompt, systemPrompt, w); err != nil {
+			log.Println("Generation error:", err)
+		}
 	}
 
 	// Trigger background summarization check

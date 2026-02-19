@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ollama/ollama/api"
 	"github.com/tmc/langchaingo/llms"
@@ -24,6 +25,8 @@ var (
 // Provider interface defines the contract for LLM providers
 type Provider interface {
 	Generate(ctx context.Context, history []api.Message, prompt string, systemPrompt string, w http.ResponseWriter) error
+	GenerateWithTools(ctx context.Context, history []api.Message, systemPrompt string, tools []Tool) (string, []ToolCall, error)
+	GenerateNonStreaming(ctx context.Context, history []api.Message, prompt string, systemPrompt string) (string, error)
 	FetchModels(ctx context.Context) ([]ModelInfo, error)
 }
 
@@ -203,6 +206,146 @@ func (p *OllamaProvider) FetchModels(ctx context.Context) ([]ModelInfo, error) {
 		})
 	}
 	return models, nil
+}
+
+// GenerateNonStreaming returns a complete response without streaming
+func (p *OllamaProvider) GenerateNonStreaming(ctx context.Context, history []api.Message, prompt string, systemPrompt string) (string, error) {
+	messages := append([]api.Message{}, history...)
+	messages = append(messages, api.Message{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	if systemPrompt != "" && len(messages) > 0 && messages[0].Role != "system" {
+		messages = append([]api.Message{{Role: "system", Content: systemPrompt}}, messages...)
+	}
+
+	req := &api.ChatRequest{
+		Model:    p.model,
+		Messages: messages,
+	}
+
+	var response strings.Builder
+	respFunc := func(resp api.ChatResponse) error {
+		response.WriteString(resp.Message.Content)
+		return nil
+	}
+
+	err := p.client.Chat(ctx, req, respFunc)
+	if err != nil {
+		return "", err
+	}
+
+	return response.String(), nil
+}
+
+// GenerateWithTools generates a response with tool support for Ollama
+func (p *OllamaProvider) GenerateWithTools(ctx context.Context, history []api.Message, systemPrompt string, tools []Tool) (string, []ToolCall, error) {
+	messages := append([]api.Message{}, history...)
+
+	if systemPrompt != "" && len(messages) > 0 && messages[0].Role != "system" {
+		messages = append([]api.Message{{Role: "system", Content: systemPrompt}}, messages...)
+	}
+
+	req := &api.ChatRequest{
+		Model:    p.model,
+		Messages: messages,
+	}
+
+	if len(tools) > 0 {
+		ollamaTools := make(api.Tools, len(tools))
+		for i, t := range tools {
+			props := make(map[string]struct {
+				Type        string   `json:"type"`
+				Description string   `json:"description"`
+				Enum        []string `json:"enum,omitempty"`
+			})
+			if t.InputSchema != nil {
+				if propsMap, ok := t.InputSchema["properties"].(map[string]interface{}); ok {
+					for k, v := range propsMap {
+						if propMap, ok := v.(map[string]interface{}); ok {
+							p := struct {
+								Type        string   `json:"type"`
+								Description string   `json:"description"`
+								Enum        []string `json:"enum,omitempty"`
+							}{}
+							if typ, ok := propMap["type"].(string); ok {
+								p.Type = typ
+							}
+							if desc, ok := propMap["description"].(string); ok {
+								p.Description = desc
+							}
+							if enum, ok := propMap["enum"].([]string); ok {
+								p.Enum = enum
+							}
+							props[k] = p
+						}
+					}
+				}
+			}
+
+			var required []string
+			if t.InputSchema != nil {
+				if reqArr, ok := t.InputSchema["required"].([]interface{}); ok {
+					for _, r := range reqArr {
+						if rs, ok := r.(string); ok {
+							required = append(required, rs)
+						}
+					}
+				}
+			}
+
+			ollamaTools[i] = api.Tool{
+				Type: "function",
+				Function: api.ToolFunction{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters: struct {
+						Type       string   `json:"type"`
+						Required   []string `json:"required"`
+						Properties map[string]struct {
+							Type        string   `json:"type"`
+							Description string   `json:"description"`
+							Enum        []string `json:"enum,omitempty"`
+						} `json:"properties"`
+					}{
+						Type:       "object",
+						Required:   required,
+						Properties: props,
+					},
+				},
+			}
+		}
+		req.Tools = ollamaTools
+	}
+
+	var response strings.Builder
+	var toolCalls []ToolCall
+
+	respFunc := func(resp api.ChatResponse) error {
+		if resp.Message.ToolCalls != nil {
+			for _, tc := range resp.Message.ToolCalls {
+				args := make(map[string]interface{})
+				for k, v := range tc.Function.Arguments {
+					args[k] = v
+				}
+				toolCalls = append(toolCalls, ToolCall{
+					ID:        fmt.Sprintf("call_%d", time.Now().UnixNano()),
+					Name:      tc.Function.Name,
+					Arguments: args,
+				})
+			}
+		}
+		response.WriteString(resp.Message.Content)
+		return nil
+	}
+
+	err := p.client.Chat(ctx, req, respFunc)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return response.String(), toolCalls, nil
 }
 
 // UsageStats holds token usage information
@@ -386,6 +529,152 @@ func (p *OpenAIProvider) FetchModels(ctx context.Context) ([]ModelInfo, error) {
 	}
 
 	return models, nil
+}
+
+// GenerateNonStreaming returns a complete response without streaming for OpenAI
+func (p *OpenAIProvider) GenerateNonStreaming(ctx context.Context, history []api.Message, prompt string, systemPrompt string) (string, error) {
+	llm, err := getCachedLLM(p.baseURL, p.apiKey, p.model)
+	if err != nil {
+		return "", err
+	}
+
+	messages := []llms.MessageContent{}
+
+	if systemPrompt != "" {
+		messages = append(messages, llms.MessageContent{
+			Role: llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: systemPrompt},
+			},
+		})
+	}
+
+	for _, msg := range history {
+		role := llms.ChatMessageTypeHuman
+		if msg.Role == "assistant" {
+			role = llms.ChatMessageTypeAI
+		} else if msg.Role == "system" {
+			role = llms.ChatMessageTypeSystem
+		}
+		messages = append(messages, llms.MessageContent{
+			Role: role,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: msg.Content},
+			},
+		})
+	}
+
+	messages = append(messages, llms.MessageContent{
+		Role: llms.ChatMessageTypeHuman,
+		Parts: []llms.ContentPart{
+			llms.TextContent{Text: prompt},
+		},
+	})
+
+	opts := []llms.CallOption{
+		llms.WithMaxTokens(4096),
+		llms.WithTemperature(0.7),
+		llms.WithTopP(0.9),
+	}
+
+	resp, err := llm.GenerateContent(ctx, messages, opts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate content: %w", err)
+	}
+
+	var result strings.Builder
+	for _, c := range resp.Choices {
+		result.WriteString(c.Content)
+	}
+
+	return result.String(), nil
+}
+
+// GenerateWithTools generates a response with tool support for OpenAI
+func (p *OpenAIProvider) GenerateWithTools(ctx context.Context, history []api.Message, systemPrompt string, tools []Tool) (string, []ToolCall, error) {
+	llm, err := getCachedLLM(p.baseURL, p.apiKey, p.model)
+	if err != nil {
+		return "", nil, err
+	}
+
+	messages := []llms.MessageContent{}
+
+	if systemPrompt != "" {
+		messages = append(messages, llms.MessageContent{
+			Role: llms.ChatMessageTypeSystem,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: systemPrompt},
+			},
+		})
+	}
+
+	for _, msg := range history {
+		role := llms.ChatMessageTypeHuman
+		if msg.Role == "assistant" {
+			role = llms.ChatMessageTypeAI
+		} else if msg.Role == "system" {
+			role = llms.ChatMessageTypeSystem
+		} else if msg.Role == "tool" {
+			role = llms.ChatMessageTypeTool
+		}
+		messages = append(messages, llms.MessageContent{
+			Role: role,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: msg.Content},
+			},
+		})
+	}
+
+	opts := []llms.CallOption{
+		llms.WithMaxTokens(4096),
+		llms.WithTemperature(0.7),
+		llms.WithTopP(0.9),
+	}
+
+	if len(tools) > 0 {
+		llmTools := make([]llms.Tool, len(tools))
+		for i, t := range tools {
+			llmTools[i] = llms.Tool{
+				Type: "function",
+				Function: &llms.FunctionDefinition{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  t.InputSchema,
+				},
+			}
+		}
+		opts = append(opts, llms.WithTools(llmTools))
+	}
+
+	resp, err := llm.GenerateContent(ctx, messages, opts...)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate content: %w", err)
+	}
+
+	var result strings.Builder
+	var toolCalls []ToolCall
+
+	for _, c := range resp.Choices {
+		result.WriteString(c.Content)
+
+		if c.ToolCalls != nil {
+			for _, tc := range c.ToolCalls {
+				args := make(map[string]interface{})
+				if tc.FunctionCall != nil {
+					if tc.FunctionCall.Arguments != "" {
+						json.Unmarshal([]byte(tc.FunctionCall.Arguments), &args)
+					}
+					toolCalls = append(toolCalls, ToolCall{
+						ID:        tc.ID,
+						Name:      tc.FunctionCall.Name,
+						Arguments: args,
+					})
+				}
+			}
+		}
+	}
+
+	return result.String(), toolCalls, nil
 }
 
 // GetActiveProvider retrieves the currently active provider from the database
