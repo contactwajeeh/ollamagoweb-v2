@@ -317,6 +317,17 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 			linkedSessionID.String, linkedAt.Time.Format("2006-01-02 15:04"))
 		sendTelegramMessage(chatID, msg)
 
+	case "search":
+		if len(parts) < 2 {
+			sendTelegramMessage(chatID, "❌ Usage: /search <query>\n\nExample: /search latest AI news")
+			return
+		}
+		sessionID := getTelegramSession(userID)
+		searchQuery := "/search " + strings.Join(parts[1:], " ")
+		sendTypingIndicator(chatID)
+		response := generateResponseForSession(sessionID, searchQuery)
+		sendTelegramMessage(chatID, response)
+
 	default:
 		sendTelegramMessage(chatID, fmt.Sprintf("❓ Unknown command: /%s\n\nUse /help for available commands.", cmd))
 	}
