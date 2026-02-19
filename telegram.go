@@ -149,7 +149,8 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 				"/help - Show this help\n"+
 				"/memories - View your memories\n"+
 				"/clear - Clear conversation history\n"+
-				"/settings - Show your settings\n\n"+
+				"/settings - Show your settings\n"+
+				"/search <query> - Search the web\n\n"+
 				"🔗 Session Linking:\n"+
 				"/link_session <id> <token> - Link Telegram to web session\n"+
 				"/unlink_session - Unlink from web session\n"+
@@ -163,7 +164,8 @@ func handleTelegramCommand(message *tgbotapi.Message, userID, chatID int64) {
 			"💬 Chat:\n" +
 			"  /start - Start a new session\n" +
 			"  /clear - Clear current conversation\n" +
-			"  /settings - Show your current settings\n\n" +
+			"  /settings - Show your current settings\n" +
+			"  /search <query> - Search the web for info\n\n" +
 			"🧠 Memory:\n" +
 			"  /memories - View your saved memories\n\n" +
 			"🔗 Session Linking:\n" +
@@ -366,6 +368,29 @@ func generateResponseForSession(sessionID, userMessage string) string {
 
 	log.Printf("Generating response for Telegram session %s with provider: %s, model: %s", sessionID, config.Name, config.Model)
 
+	var braveAPIKey string
+	err = db.QueryRow("SELECT value FROM settings WHERE key = 'brave_api_key'").Scan(&braveAPIKey)
+	if err != nil && err != sql.ErrNoRows {
+		log.Println("Error fetching Brave API key:", err)
+	}
+
+	if braveAPIKey != "" {
+		decrypted, err := Decrypt(braveAPIKey)
+		if err != nil {
+			log.Println("Error decrypting Brave API key:", err)
+		} else {
+			braveAPIKey = decrypted
+		}
+	}
+
+	enrichedPrompt, err := MaybeSearch(userMessage, braveAPIKey)
+	if err != nil {
+		if strings.HasPrefix(userMessage, "/search ") {
+			return fmt.Sprintf("❌ Search error: %v", err)
+		}
+		enrichedPrompt = userMessage
+	}
+
 	chatID, err := getOrCreateChatForSession(sessionID)
 	if err != nil {
 		log.Printf("Error getting/creating chat for session: %v", err)
@@ -435,7 +460,7 @@ func generateResponseForSession(sessionID, userMessage string) string {
 		log.Printf("  [%d] %s: %s", i, msg.Role, truncateString(msg.Content, 100))
 	}
 
-	if err := provider.Generate(ctx, history, userMessage, systemPrompt, wr2); err != nil {
+	if err := provider.Generate(ctx, history, enrichedPrompt, systemPrompt, wr2); err != nil {
 		log.Printf("Error generating Telegram response: %v", err)
 		return "❌ Error generating response. Please try again."
 	}
