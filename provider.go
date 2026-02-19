@@ -617,11 +617,38 @@ func (p *OpenAIProvider) GenerateWithTools(ctx context.Context, history []api.Me
 		} else if msg.Role == "tool" {
 			role = llms.ChatMessageTypeTool
 		}
-		messages = append(messages, llms.MessageContent{
-			Role: role,
-			Parts: []llms.ContentPart{
+
+		var parts []llms.ContentPart
+		if msg.Role == "tool" {
+			var toolResp struct {
+				ToolCallID string `json:"tool_call_id"`
+				Name       string `json:"name"`
+				Result     string `json:"result"`
+			}
+			if err := json.Unmarshal([]byte(msg.Content), &toolResp); err == nil {
+				parts = []llms.ContentPart{
+					llms.ToolCallResponse{
+						ToolCallID: toolResp.ToolCallID,
+						Name:       toolResp.Name,
+						Content:    toolResp.Result,
+					},
+				}
+			} else {
+				parts = []llms.ContentPart{
+					llms.ToolCallResponse{
+						Content: msg.Content,
+					},
+				}
+			}
+		} else {
+			parts = []llms.ContentPart{
 				llms.TextContent{Text: msg.Content},
-			},
+			}
+		}
+
+		messages = append(messages, llms.MessageContent{
+			Role:  role,
+			Parts: parts,
 		})
 	}
 
