@@ -25,7 +25,7 @@ var (
 // Provider interface defines the contract for LLM providers
 type Provider interface {
 	Generate(ctx context.Context, history []api.Message, prompt string, systemPrompt string, w http.ResponseWriter) error
-	GenerateWithTools(ctx context.Context, history []api.Message, systemPrompt string, tools []Tool) (string, []ToolCall, error)
+	GenerateWithTools(ctx context.Context, history []AgenticMessage, systemPrompt string, tools []Tool) (string, []ToolCall, error)
 	GenerateNonStreaming(ctx context.Context, history []api.Message, prompt string, systemPrompt string) (string, error)
 	FetchModels(ctx context.Context) ([]ModelInfo, error)
 }
@@ -240,8 +240,14 @@ func (p *OllamaProvider) GenerateNonStreaming(ctx context.Context, history []api
 }
 
 // GenerateWithTools generates a response with tool support for Ollama
-func (p *OllamaProvider) GenerateWithTools(ctx context.Context, history []api.Message, systemPrompt string, tools []Tool) (string, []ToolCall, error) {
-	messages := append([]api.Message{}, history...)
+func (p *OllamaProvider) GenerateWithTools(ctx context.Context, history []AgenticMessage, systemPrompt string, tools []Tool) (string, []ToolCall, error) {
+	messages := make([]api.Message, len(history))
+	for i, msg := range history {
+		messages[i] = api.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
 
 	if systemPrompt != "" && len(messages) > 0 && messages[0].Role != "system" {
 		messages = append([]api.Message{{Role: "system", Content: systemPrompt}}, messages...)
@@ -591,7 +597,7 @@ func (p *OpenAIProvider) GenerateNonStreaming(ctx context.Context, history []api
 }
 
 // GenerateWithTools generates a response with tool support for OpenAI
-func (p *OpenAIProvider) GenerateWithTools(ctx context.Context, history []api.Message, systemPrompt string, tools []Tool) (string, []ToolCall, error) {
+func (p *OpenAIProvider) GenerateWithTools(ctx context.Context, history []AgenticMessage, systemPrompt string, tools []Tool) (string, []ToolCall, error) {
 	llm, err := getCachedLLM(p.baseURL, p.apiKey, p.model)
 	if err != nil {
 		return "", nil, err
@@ -639,6 +645,21 @@ func (p *OpenAIProvider) GenerateWithTools(ctx context.Context, history []api.Me
 						Content: msg.Content,
 					},
 				}
+			}
+		} else if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			parts = []llms.ContentPart{
+				llms.TextContent{Text: msg.Content},
+			}
+			for _, tc := range msg.ToolCalls {
+				argsJSON, _ := json.Marshal(tc.Arguments)
+				parts = append(parts, llms.ToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					FunctionCall: &llms.FunctionCall{
+						Name:      tc.Name,
+						Arguments: string(argsJSON),
+					},
+				})
 			}
 		} else {
 			parts = []llms.ContentPart{

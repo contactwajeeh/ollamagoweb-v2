@@ -32,6 +32,12 @@ type ToolResult struct {
 	IsError    bool   `json:"is_error"`
 }
 
+type AgenticMessage struct {
+	Role      string
+	Content   string
+	ToolCalls []ToolCall
+}
+
 const MaxToolIterations = 5
 
 func GetAllEnabledMCPTools(ctx context.Context) ([]Tool, error) {
@@ -143,10 +149,15 @@ func RunAgenticLoop(
 		return provider.GenerateNonStreaming(ctx, history, prompt, systemPrompt)
 	}
 
-	messages := make([]api.Message, len(history))
-	copy(messages, history)
+	messages := make([]AgenticMessage, len(history))
+	for i, msg := range history {
+		messages[i] = AgenticMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
 
-	messages = append(messages, api.Message{
+	messages = append(messages, AgenticMessage{
 		Role:    "user",
 		Content: prompt,
 	})
@@ -165,9 +176,10 @@ func RunAgenticLoop(
 
 		log.Printf("LLM requested %d tool calls", len(toolCalls))
 
-		messages = append(messages, api.Message{
-			Role:    "assistant",
-			Content: response,
+		messages = append(messages, AgenticMessage{
+			Role:      "assistant",
+			Content:   response,
+			ToolCalls: toolCalls,
 		})
 
 		for _, tc := range toolCalls {
@@ -205,14 +217,21 @@ func RunAgenticLoop(
 				"result":       toolResultContent,
 			})
 
-			messages = append(messages, api.Message{
+			messages = append(messages, AgenticMessage{
 				Role:    "tool",
 				Content: string(resultJSON),
 			})
 		}
 	}
 
-	return provider.GenerateNonStreaming(ctx, messages, "", systemPrompt)
+	apiMessages := make([]api.Message, len(messages))
+	for i, msg := range messages {
+		apiMessages[i] = api.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+	return provider.GenerateNonStreaming(ctx, apiMessages, "", systemPrompt)
 }
 
 func ExtractToolCallsFromResponse(response map[string]interface{}) []ToolCall {
