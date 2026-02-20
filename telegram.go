@@ -617,11 +617,212 @@ func getOrCreateChatForSession(sessionID string) (int64, error) {
 	return chatID, err
 }
 
-func sendTelegramMessage(chatID int64, text string) {
-	msg := tgbotapi.NewMessage(chatID, text)
+func markdownToHTML(text string) string {
+	var result strings.Builder
+	lines := strings.Split(text, "\n")
+	inCodeBlock := false
 
-	if _, err := telegramBot.Send(msg); err != nil {
-		log.Printf("Error sending Telegram message: %v", err)
+	for _, line := range lines {
+		if strings.HasPrefix(line, "```") {
+			if !inCodeBlock {
+				inCodeBlock = true
+				lang := strings.TrimPrefix(line, "```")
+				result.WriteString("<pre><code>")
+				if lang != "" {
+					result.WriteString("[" + lang + "]\n")
+				}
+			} else {
+				inCodeBlock = false
+				result.WriteString("</code></pre>\n")
+			}
+			continue
+		}
+
+		if inCodeBlock {
+			result.WriteString(escapeHTML(line) + "\n")
+			continue
+		}
+
+		processed := processInlineMarkdown(line)
+		result.WriteString(processed + "\n")
+	}
+
+	output := strings.TrimSuffix(result.String(), "\n")
+	return output
+}
+
+func processInlineMarkdown(line string) string {
+	line = escapeHTML(line)
+
+	line = processCode(line)
+	line = processBold(line)
+	line = processItalic(line)
+	line = processStrikethrough(line)
+
+	return line
+}
+
+func processCode(line string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(line) {
+		if i < len(line)-1 && line[i] == '`' && line[i+1] != '`' {
+			end := strings.Index(line[i+1:], "`")
+			if end != -1 {
+				result.WriteString("<code>")
+				result.WriteString(line[i+1 : i+1+end])
+				result.WriteString("</code>")
+				i += end + 2
+				continue
+			}
+		}
+		result.WriteByte(line[i])
+		i++
+	}
+	return result.String()
+}
+
+func processBold(line string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(line) {
+		if i < len(line)-3 && line[i] == '*' && line[i+1] == '*' {
+			end := strings.Index(line[i+2:], "**")
+			if end != -1 {
+				result.WriteString("<b>")
+				result.WriteString(line[i+2 : i+2+end])
+				result.WriteString("</b>")
+				i += end + 4
+				continue
+			}
+		}
+		result.WriteByte(line[i])
+		i++
+	}
+	return result.String()
+}
+
+func processItalic(line string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(line) {
+		if i < len(line)-1 && line[i] == '*' && (i == 0 || line[i-1] != '*') && line[i+1] != '*' {
+			end := strings.Index(line[i+1:], "*")
+			if end != -1 && end > 0 {
+				result.WriteString("<i>")
+				result.WriteString(line[i+1 : i+1+end])
+				result.WriteString("</i>")
+				i += end + 2
+				continue
+			}
+		}
+		if i < len(line)-1 && line[i] == '_' && line[i+1] != '_' {
+			end := strings.Index(line[i+1:], "_")
+			if end != -1 && end > 0 {
+				result.WriteString("<i>")
+				result.WriteString(line[i+1 : i+1+end])
+				result.WriteString("</i>")
+				i += end + 2
+				continue
+			}
+		}
+		result.WriteByte(line[i])
+		i++
+	}
+	return result.String()
+}
+
+func processStrikethrough(line string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(line) {
+		if i < len(line)-3 && line[i] == '~' && line[i+1] == '~' {
+			end := strings.Index(line[i+2:], "~~")
+			if end != -1 {
+				result.WriteString("<s>")
+				result.WriteString(line[i+2 : i+2+end])
+				result.WriteString("</s>")
+				i += end + 4
+				continue
+			}
+		}
+		result.WriteByte(line[i])
+		i++
+	}
+	return result.String()
+}
+
+func escapeHTML(text string) string {
+	text = strings.ReplaceAll(text, "&", "&amp;")
+	text = strings.ReplaceAll(text, "<", "&lt;")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
+}
+
+func formatForTelegram(text string) string {
+	text = markdownToHTML(text)
+	return text
+}
+
+func splitMessage(text string, maxLen int) []string {
+	if len(text) <= maxLen {
+		return []string{text}
+	}
+
+	var messages []string
+	var current strings.Builder
+	currentLen := 0
+
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		lineWithNewline := line + "\n"
+		if currentLen+len(lineWithNewline) > maxLen {
+			if current.Len() > 0 {
+				messages = append(messages, strings.TrimSuffix(current.String(), "\n"))
+				current.Reset()
+				currentLen = 0
+			}
+			if len(lineWithNewline) > maxLen {
+				for len(line) > maxLen {
+					messages = append(messages, line[:maxLen])
+					line = line[maxLen:]
+				}
+				if len(line) > 0 {
+					current.WriteString(line + "\n")
+					currentLen = len(line) + 1
+				}
+			} else {
+				current.WriteString(lineWithNewline)
+				currentLen = len(lineWithNewline)
+			}
+		} else {
+			current.WriteString(lineWithNewline)
+			currentLen += len(lineWithNewline)
+		}
+	}
+
+	if current.Len() > 0 {
+		messages = append(messages, strings.TrimSuffix(current.String(), "\n"))
+	}
+
+	return messages
+}
+
+func sendTelegramMessage(chatID int64, text string) {
+	formatted := formatForTelegram(text)
+	messages := splitMessage(formatted, 4000)
+
+	for _, msgText := range messages {
+		msg := tgbotapi.NewMessage(chatID, msgText)
+		msg.ParseMode = tgbotapi.ModeHTML
+
+		if _, err := telegramBot.Send(msg); err != nil {
+			log.Printf("Error sending Telegram message: %v", err)
+			fallback := tgbotapi.NewMessage(chatID, text)
+			if _, fallbackErr := telegramBot.Send(fallback); fallbackErr != nil {
+				log.Printf("Fallback also failed: %v", fallbackErr)
+			}
+		}
 	}
 }
 
